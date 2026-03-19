@@ -19838,7 +19838,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       connected_clients: memSession?.clients?.size || 0,
       latest_hunt_id: latestHuntId,
       requires_tab_refresh: refreshRequired,
-      observation_summary: memSession?.observationSummary || null,
     };
   }
 
@@ -20456,7 +20455,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       if (turnNumber === undefined) return res.status(400).json({ ok: false, error: 'turnNumber required' });
 
       const { rawPg } = await import('./server/db.js');
-      const { buildTurnEventObservationBatch, recordCompanionObservation } = await import('./server/observation-bridge.ts');
       huntSessionId = await resolveHuntSessionId(rawPg, huntSessionId, session.id);
       if (!huntSessionId) return res.status(400).json({ ok: false, error: 'No active hunt session found for this token — call /api/dfk/telemetry/session first' });
       if (!(await verifyHuntSessionOwnership(rawPg, huntSessionId, session.id))) {
@@ -20470,7 +20468,19 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       await rawPg`UPDATE dfk_hunt_sessions SET event_count = event_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
 
       // Also mirror to companion session (HTTP fallback path) and run scoring engine
-      const memSession = await getOrCreateCompanionSessionState(sessionToken);
+      if (!companionSessions.has(sessionToken)) {
+        companionSessions.set(sessionToken, {
+          clients: new Set(),
+          turnEvents: [],
+          heroStates: null,
+          enemyId: null,
+          battleBudgetRemaining: null,
+          consumableQuantities: {},
+          latestFrame: null,
+          rawFrames: [],
+        });
+      }
+      const memSession = companionSessions.get(sessionToken);
       if (memSession) {
         if (req.body.combatFrame) {
           const { normalizeCombatFrame, getPrimaryEnemyId } = await import('./server/pve-combat-frame.ts');
@@ -20484,34 +20494,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         const turnMsg = { actor, actorSide, actorSlot: req.body.actorSlot || null, skillId: ability || null, effects: effects || [], huntId: req.body.huntId || null, activeHeroSlot: httpActiveHeroSlot };
         memSession.turnEvents.push(turnMsg);
         if (httpActiveHeroSlot != null) memSession.lastActiveHeroSlot = httpActiveHeroSlot;
-        const turnObservation = buildTurnEventObservationBatch({
-          sessionId: session.id,
-          transport: 'http',
-          channel: 'telemetry_event',
-          label: 'DFK Telemetry Event',
-          huntId: req.body.huntId || null,
-          huntSessionId,
-          turnNumber,
-          actor,
-          actorSide: actorSide || null,
-          actorSlot: req.body.actorSlot != null ? Number(req.body.actorSlot) : null,
-          target: target || null,
-          ability: ability || null,
-          skillId: req.body.skillId || ability || null,
-          damage: damage != null ? Number(damage) : null,
-          manaDelta: manaDelta != null ? Number(manaDelta) : null,
-          effects: effects || [],
-          rawText: rawText || null,
-          activeHeroSlot: httpActiveHeroSlot,
-          battleBudgetRemaining: memSession.battleBudgetRemaining,
-          consumableQuantities: memSession.consumableQuantities,
-          combatFrame: memSession.latestFrame,
-          metadata: {
-            actor,
-            target,
-          },
-        });
-        recordCompanionObservation(memSession, turnObservation.batch, turnObservation.summary);
         // Also persist to pve_turn_events so session status polling picks it up
         const compRows = await rawPg`SELECT id FROM pve_companion_sessions WHERE session_token = ${sessionToken}`;
         if (compRows.length > 0) {
@@ -20570,7 +20552,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       if (!checkTelemetryRate(sessionToken)) return res.status(429).json({ ok: false, error: 'Rate limit exceeded' });
 
       const { rawPg } = await import('./server/db.js');
-      const { buildStateSnapshotObservationBatch, buildUnitSnapshotObservationBatch, recordCompanionObservation } = await import('./server/observation-bridge.ts');
       huntSessionId = await resolveHuntSessionId(rawPg, huntSessionId, session.id);
       if (!huntSessionId) return res.status(400).json({ ok: false, error: 'No active hunt session found for this token — call /api/dfk/telemetry/session first' });
       if (!(await verifyHuntSessionOwnership(rawPg, huntSessionId, session.id))) {
@@ -20587,7 +20568,20 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         `;
         await rawPg`UPDATE dfk_hunt_sessions SET snapshot_count = snapshot_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
 
-        const memSnap = await getOrCreateCompanionSessionState(sessionToken);
+        if (!companionSessions.has(sessionToken)) {
+          companionSessions.set(sessionToken, {
+            clients: new Set(),
+            turnEvents: [],
+            heroStates: null,
+            enemyId: null,
+            battleBudgetRemaining: null,
+            consumableQuantities: {},
+            latestFrame: null,
+            rawFrames: [],
+          });
+        }
+
+        const memSnap = companionSessions.get(sessionToken);
         if (memSnap && req.body.combatFrame) {
           const { normalizeCombatFrame, getPrimaryEnemyId } = await import('./server/pve-combat-frame.ts');
           const normalizedFrame = normalizeCombatFrame(req.body.combatFrame);
@@ -20611,29 +20605,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           }
         }
         if (memSnap) {
-          const stateObservation = buildStateSnapshotObservationBatch({
-            sessionId: session.id,
-            transport: 'http',
-            channel: 'telemetry_snapshot',
-            label: 'DFK Telemetry State Snapshot',
-            huntId: fullState.huntId || req.body.huntId || null,
-            huntSessionId,
-            turnNumber,
-            fullState,
-            heroes: fullState.heroes ?? memSnap.heroStates ?? [],
-            enemies: fullState.enemies ?? [],
-            enemyId: memSnap.enemyId || fullState.enemyId || null,
-            activeHeroSlot: memSnap.lastActiveHeroSlot ?? null,
-            battleBudgetRemaining: memSnap.battleBudgetRemaining,
-            consumableQuantities: memSnap.consumableQuantities,
-            combatFrame: memSnap.latestFrame,
-            metadata: {
-              snapshotType: 'turn',
-            },
-          });
-          recordCompanionObservation(memSnap, stateObservation.batch, stateObservation.summary);
-        }
-        if (memSnap) {
           const snapshotBroadcast = JSON.stringify({
             type: 'state_update',
             heroes: memSnap.heroStates,
@@ -20655,30 +20626,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           RETURNING id
         `;
         await rawPg`UPDATE dfk_hunt_sessions SET snapshot_count = snapshot_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
-        const memSnap = await getOrCreateCompanionSessionState(sessionToken);
-        if (memSnap) {
-          const unitObservation = buildUnitSnapshotObservationBatch({
-            sessionId: session.id,
-            transport: 'http',
-            channel: 'telemetry_snapshot',
-            label: 'DFK Telemetry Unit Snapshot',
-            huntId: req.body.huntId || null,
-            huntSessionId,
-            unitName,
-            unitSide,
-            position: position != null ? Number(position) : null,
-            heroId: heroId || null,
-            stats,
-            baseStats: req.body.baseStats || null,
-            items: req.body.items || null,
-            capturedAtTurn: capturedAtTurn != null ? Number(capturedAtTurn) : null,
-            snapshotId: rows[0]?.id ?? null,
-            metadata: {
-              snapshotType: 'unit',
-            },
-          });
-          recordCompanionObservation(memSnap, unitObservation.batch, unitObservation.summary);
-        }
         res.json({ ok: true, snapshotId: rows[0]?.id, type: 'unit' });
       }
     } catch (err) {
@@ -20700,8 +20647,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
       const { reconcileStats } = await import('./server/dfk-reconcile.ts');
       const { rawPg } = await import('./server/db.js');
-      const { buildReconciliationObservationBatch, recordCompanionObservation } = await import('./server/observation-bridge.ts');
-      const memSession = await getOrCreateCompanionSessionState(sessionToken);
 
       let reconcileOptions = {};
 
@@ -20827,27 +20772,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             ON CONFLICT DO NOTHING
           `.catch(() => null);
         }
-      }
-
-      if (memSession) {
-        const reconciliationObservation = buildReconciliationObservationBatch({
-          sessionId: session.id,
-          transport: 'http',
-          channel: 'reconcile',
-          label: 'DFK Reconciliation',
-          snapshotId,
-          unitName: unitSnapshot.unitName || null,
-          unitSide: unitSnapshot.unitSide || null,
-          heroId: heroId || null,
-          position: unitSnapshot.position != null ? Number(unitSnapshot.position) : null,
-          diffCount: result.diffs.length,
-          hasEquipment: !!(heroEquipment) || (Array.isArray(unitSnapshot.items) && unitSnapshot.items.length > 0),
-          diffs: result.diffs,
-          metadata: {
-            source: 'api/dfk/reconcile',
-          },
-        });
-        recordCompanionObservation(memSession, reconciliationObservation.batch, reconciliationObservation.summary);
       }
 
       res.json({ ok: true, snapshotId, ...result });
@@ -22761,14 +22685,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
   const companionWss = new WebSocketServer({ noServer: true });
   const companionSessions = new Map();
 
-  async function getOrCreateCompanionSessionState(sessionToken) {
-    if (!companionSessions.has(sessionToken)) {
-      const { createCompanionSessionState } = await import('./server/observation-bridge.ts');
-      companionSessions.set(sessionToken, createCompanionSessionState());
-    }
-    return companionSessions.get(sessionToken);
-  }
-
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
     if (url.pathname === '/ws/companion') {
@@ -22804,7 +22720,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       try {
         const msg = JSON.parse(data.toString());
         const { rawPg } = await import('./server/db.js');
-        const { buildStateSnapshotObservationBatch, buildTurnEventObservationBatch, buildUnitSnapshotObservationBatch, recordCompanionObservation } = await import('./server/observation-bridge.ts');
 
         if (msg.type === 'join') {
           sessionToken = msg.sessionToken;
@@ -22820,8 +22735,19 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           sessionId = rows[0].id;
           await rawPg`UPDATE pve_companion_sessions SET status = 'connected', last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
 
-          const session = await getOrCreateCompanionSessionState(sessionToken);
-          session.clients.add(ws);
+          if (!companionSessions.has(sessionToken)) {
+            companionSessions.set(sessionToken, {
+              clients: new Set(),
+              turnEvents: [],
+              heroStates: null,
+              enemyId: null,
+              battleBudgetRemaining: null,
+              consumableQuantities: {},
+              latestFrame: null,
+              rawFrames: [],
+            });
+          }
+          companionSessions.get(sessionToken).clients.add(ws);
 
           const existingEvents = await rawPg`SELECT * FROM pve_turn_events WHERE session_id = ${sessionId} ORDER BY turn_number ASC`;
           ws.send(JSON.stringify({
@@ -22870,12 +22796,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
               if (!session.enemyId) session.enemyId = getPrimaryEnemyId(normalizedFrame) || session.enemyId;
             }
             session.heroStates = msg.heroes || null;
-            if (msg.battleBudgetRemaining !== undefined) {
-              session.battleBudgetRemaining = msg.battleBudgetRemaining;
-            }
-            if (msg.consumableQuantities && typeof msg.consumableQuantities === 'object') {
-              session.consumableQuantities = { ...session.consumableQuantities, ...msg.consumableQuantities };
-            }
             // Prefer explicit enemyId, then auto-detect from enemies array name
             if (msg.enemyId) {
               session.enemyId = msg.enemyId;
@@ -22894,30 +22814,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
                 SET status = 'connected', refresh_required_at = NULL, last_seen_at = CURRENT_TIMESTAMP
                 WHERE id = ${sessionId}`;
             }
-          }
-          if (session) {
-            const stateObservation = buildStateSnapshotObservationBatch({
-              sessionId: sessionId,
-              transport: 'ws',
-              channel: 'state_snapshot',
-              label: 'DFK Companion State Snapshot',
-              huntId: msg.huntId || null,
-              huntSessionId: null,
-              turnNumber: msg.turnNumber ?? null,
-              fullState: msg,
-              heroes: msg.heroes ?? session.heroStates ?? [],
-              enemies: msg.enemies ?? [],
-              enemyId: session.enemyId || msg.enemyId || null,
-              wallet: msg.wallet || msg.walletAddress || null,
-              activeHeroSlot: msg.activeHeroSlot ?? session.lastActiveHeroSlot ?? null,
-              battleBudgetRemaining: session.battleBudgetRemaining,
-              consumableQuantities: session.consumableQuantities,
-              combatFrame: session.latestFrame,
-              metadata: {
-                messageType: msg.type,
-              },
-            });
-            recordCompanionObservation(session, stateObservation.batch, stateObservation.summary);
           }
           ws.send(JSON.stringify({ type: 'snapshot_ack', received: true }));
           const snapshotBroadcast = JSON.stringify({ type: 'state_update', heroes: session.heroStates, enemyId: session.enemyId, combatFrame: session.latestFrame });
@@ -22972,43 +22868,6 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
               if (!session.enemyId) session.enemyId = getPrimaryEnemyId(normalizedFrame) || session.enemyId;
             }
             session.turnEvents.push(msg);
-            if (msg.battleBudgetRemaining !== undefined) {
-              session.battleBudgetRemaining = msg.battleBudgetRemaining;
-            }
-            if (msg.consumableQuantities && typeof msg.consumableQuantities === 'object') {
-              session.consumableQuantities = { ...session.consumableQuantities, ...msg.consumableQuantities };
-            }
-            if (msg.activeHeroSlot !== undefined) {
-              session.lastActiveHeroSlot = msg.activeHeroSlot;
-            }
-            const turnObservation = buildTurnEventObservationBatch({
-              sessionId: sessionId,
-              transport: 'ws',
-              channel: 'turn_event',
-              label: 'DFK Companion Turn Event',
-              huntId: msg.huntId || null,
-              huntSessionId: null,
-              turnNumber: turnNumber ?? null,
-              actor: msg.actor || null,
-              actorSide: actorSide || null,
-              actorSlot: actorSlot != null ? Number(actorSlot) : null,
-              target: msg.target || null,
-              targets: targets || [],
-              ability: msg.ability || null,
-              skillId: skillId || null,
-              damage: msg.damage != null ? Number(msg.damage) : null,
-              manaDelta: msg.manaDelta != null ? Number(msg.manaDelta) : null,
-              effects: effects || [],
-              rawText: msg.rawText || null,
-              activeHeroSlot: msg.activeHeroSlot ?? null,
-              battleBudgetRemaining: session.battleBudgetRemaining,
-              consumableQuantities: session.consumableQuantities,
-              combatFrame: session.latestFrame,
-              metadata: {
-                messageType: msg.type,
-              },
-            });
-            recordCompanionObservation(session, turnObservation.batch, turnObservation.summary);
             const { getEnemy, getEnemyOrFallback } = await import('./server/pve-enemy-catalog.ts');
             const { scoreActions, buildBattleStateFromTurnEvents } = await import('./server/pve-scoring-engine.ts');
             const { enrichBattleStateFromCombatFrame, buildFallbackEnemyEntry, summarizeCombatFrameBattleState } = await import('./server/pve-combat-frame.ts');

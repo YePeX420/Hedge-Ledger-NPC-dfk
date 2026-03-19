@@ -27,20 +27,10 @@
   let syntheticKeyGenerated = false;
   const COMBAT_FRAME_VERSION = 1;
   let extensionContextStale = false;
-  let companionState = {
-    selectedCompanionSessionId: null,
-    requiresTabRefresh: false,
-    websocketStatus: null,
-    isJoined: false,
-    huntId: null,
-    ownedSessionCount: 0,
-    lastUpdatedAt: null,
-  };
 
   window.__dfkSessionId = null;
   window.__dfkSessionIdSource = null;
   window.__dfkLastRecommendation = null;
-  window.__dfkCompanionState = { ...companionState };
 
   function isDuplicate(event) {
     const now = Date.now();
@@ -102,49 +92,6 @@
       }
       return Promise.resolve(false);
     }
-  }
-
-  async function getRuntimeStatus() {
-    if (!runtimeReady()) return null;
-    try {
-      return await chrome.runtime.sendMessage({ type: 'get_status' });
-    } catch (err) {
-      if (isInvalidRuntimeError(err)) {
-        markExtensionContextStale(err.message || err);
-      }
-      return null;
-    }
-  }
-
-  function applyCompanionState(state) {
-    const nextSelectedSessionId =
-      state?.selectedCompanionSessionId ??
-      state?.selectedSessionId ??
-      companionState.selectedCompanionSessionId ??
-      null;
-    const nextRequiresTabRefresh =
-      typeof state?.requiresTabRefresh === 'boolean'
-        ? state.requiresTabRefresh
-        : companionState.requiresTabRefresh;
-    const nextHuntId =
-      state?.huntId ||
-      state?.currentHuntId ||
-      companionState.huntId ||
-      sessionHuntId ||
-      null;
-    companionState = {
-      ...companionState,
-      selectedCompanionSessionId: nextSelectedSessionId,
-      requiresTabRefresh: nextRequiresTabRefresh,
-      websocketStatus: state?.status || state?.websocketStatus || companionState.websocketStatus || null,
-      isJoined: state?.isJoined === true || state?.joined === true || companionState.isJoined === true,
-      huntId: nextHuntId,
-      ownedSessionCount: Array.isArray(state?.ownedCompanionSessions)
-        ? state.ownedCompanionSessions.length
-        : (Array.isArray(state?.ownedSessions) ? state.ownedSessions.length : companionState.ownedSessionCount),
-      lastUpdatedAt: Date.now(),
-    };
-    window.__dfkCompanionState = { ...companionState };
   }
 
   function safeStorageGet(keys, callback) {
@@ -235,27 +182,24 @@
 
   function toStatusInstances(values, category) {
     return (values || []).map((value) => {
-      const sourceText = typeof value === 'object' && value !== null
-        ? String(value.sourceText || '').trim()
+      const raw = typeof value === 'object' && value !== null
+        ? String(value.sourceText || value.name || value.id || '').trim()
         : String(value || '').trim();
-      const preferredName = typeof value === 'object' && value !== null
-        ? String(value.tooltipTitle || value.name || value.id || sourceText || '').trim()
-        : sourceText;
-      const stackMatch = sourceText.match(/(?:x|stack(?:s)?\s*:?\s*)(\d+)/i);
-      const turnMatch = sourceText.match(/(\d+)\s*(?:turn|tick)/i);
-      const cleanName = preferredName
+      const stackMatch = raw.match(/(?:x|stack(?:s)?\s*:?\s*)(\d+)/i);
+      const turnMatch = raw.match(/(\d+)\s*(?:turn|tick)/i);
+      const cleanName = raw
         .replace(/(?:x|stack(?:s)?\s*:?\s*)\d+/gi, '')
         .replace(/\d+\s*(?:turn|tick)s?/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
       return {
-        id: normalizeId(cleanName || preferredName || sourceText || category),
-        name: cleanName || preferredName || sourceText || category,
+        id: normalizeId(cleanName || raw || category),
+        name: cleanName || raw || category,
         category,
         stacks: stackMatch ? parseInt(stackMatch[1], 10) : null,
         durationTurns: turnMatch ? parseInt(turnMatch[1], 10) : null,
         iconUrl: typeof value === 'object' && value !== null ? (value.iconUrl || null) : null,
-        sourceText: sourceText || null,
+        sourceText: raw || null,
         tooltipTitle: typeof value === 'object' && value !== null ? (value.tooltipTitle || null) : null,
         tooltipSubtitle: typeof value === 'object' && value !== null ? (value.tooltipSubtitle || null) : null,
         tooltipBullets: typeof value === 'object' && value !== null && Array.isArray(value.tooltipBullets)
@@ -276,13 +220,6 @@
   function latestHeroDetailSnapshot() {
     for (let i = unitSnapshotCache.length - 1; i >= 0; i--) {
       if (unitSnapshotCache[i]?.heroDetail) return unitSnapshotCache[i].heroDetail;
-    }
-    return null;
-  }
-
-  function latestRuntimeBattleDataSnapshot() {
-    for (let i = unitSnapshotCache.length - 1; i >= 0; i--) {
-      if (unitSnapshotCache[i]?.runtimeBattleData) return unitSnapshotCache[i].runtimeBattleData;
     }
     return null;
   }
@@ -373,8 +310,6 @@
       const buffs = toStatusInstances([...(unit.buffs || []), ...(modal?.buffs || [])], 'buff');
       const debuffs = toStatusInstances([...(unit.debuffs || []), ...(modal?.debuffs || [])], 'debuff');
       const name = unit.name || modal?.unitName || `${side}-${unit.slot}`;
-      const runtimeCombatant = modal?.runtimeCombatant || null;
-      const runtimeBaseCombatant = runtimeCombatant?.baseCombatant || null;
       return {
         unitId: buildUnitId(side, unit.slot, name),
         side,
@@ -382,8 +317,8 @@
         name,
         normalizedId: normalizeId(name),
         iconUrl: unit.iconUrl || modal?.iconUrl || heroPortrait || enemyPortrait || null,
-        heroClass: side === 'player' ? (profile?.mainClass || runtimeBaseCombatant?.mainClassStr || modal?.heroDetail?.heroClass || null) : null,
-        heroId: side === 'player' ? (portraitHeroId || runtimeBaseCombatant?.id || null) : null,
+        heroClass: side === 'player' ? (profile?.mainClass || modal?.heroDetail?.heroClass || null) : null,
+        heroId: side === 'player' ? (portraitHeroId || null) : null,
         currentHp: unit.hp ?? modal?.stats?.hp ?? null,
         maxHp: unit.maxHp ?? modal?.stats?.maxHp ?? null,
         currentMp: unit.mp ?? modal?.stats?.mp ?? null,
@@ -400,19 +335,6 @@
         stats: { ...(modal?.baseStats || {}), ...(modal?.stats || {}) },
         resistances: modal?.heroDetail?.resistances || {},
         heroDetail: modal?.heroDetail || null,
-        engineState: runtimeCombatant ? {
-          attackConfigs: runtimeCombatant.attackConfigs || [],
-          comboTrackers: runtimeCombatant.comboTrackers || [],
-          durationTracker: runtimeCombatant.durationTracker || null,
-          passiveTrackers: runtimeCombatant.passiveTrackers || [],
-          baseCombatant: runtimeBaseCombatant || null,
-          equipment: {
-            weaponConfigs: runtimeCombatant.weaponConfigs || [],
-            armorConfigs: runtimeCombatant.armorConfigs || [],
-            combatantAccessory: runtimeCombatant.combatantAccessory || null,
-            combatantOffhands: runtimeCombatant.combatantOffhands || [],
-          },
-        } : null,
         sourceConfidence: modal ? Math.max(modal.parseConfidence || 0, 0.7) : 0.55,
       };
     };
@@ -465,7 +387,6 @@
     const activeSide = resolvedActivePlayer ? 'player' : null;
     const selectedTargetUnit = combatants.find((unit) => unit.name === turnState.selectedTarget);
     const heroDetail = latestHeroDetailSnapshot();
-    const runtimeBattleData = turnState.runtimeBattleData || latestRuntimeBattleDataSnapshot() || null;
     const legalActions = (turnState.legalActions || []).map((action) => ({
       name: action.name,
       skillId: action.skillId || null,
@@ -500,23 +421,11 @@
         battleBudgetRemaining: turnState.battleBudgetRemaining ?? null,
       },
       turnOrder: turnState.turnOrder || [],
-      turnOrderHistory: turnState.turnOrderHistory || [],
-      turnOrderDelta: turnState.turnOrderDelta || null,
-      turnOrderDiagnostics: turnState.turnOrderDiagnostics || null,
       battleLogEntries: battleLogEntry ? [battleLogEntry] : [],
       heroDetail: heroDetail ? {
         unitId: heroDetail.name ? buildUnitId('player', turnState.activeHeroSlot, heroDetail.name) : null,
         ...heroDetail,
       } : null,
-      predictionInputs: turnState.predictionInputs || (runtimeBattleData ? {
-        battleBudget: runtimeBattleData.battleBudget || null,
-        allowedAttacks: Array.isArray(runtimeBattleData.allowedAttacks) ? runtimeBattleData.allowedAttacks : [],
-        nextPlayTurn: runtimeBattleData.nextPlayTurn || null,
-        totalTicks: runtimeBattleData.totalTicks ?? null,
-        turnCount: runtimeBattleData.turnCount ?? null,
-        roundCount: runtimeBattleData.roundCount ?? null,
-        lastPlayedAttack: runtimeBattleData.lastPlayedAttack || null,
-      } : null),
       captureMeta: {
         version: COMBAT_FRAME_VERSION,
         huntId: sessionHuntId,
@@ -524,7 +433,6 @@
         source: source || 'dom',
         capturedAt: Date.now(),
         parserVersion: `extension/${COMBAT_FRAME_VERSION}`,
-        runtimeBattleData: runtimeBattleData || null,
         confidence: {
           combatants: combatants.length > 0 ? 0.75 : 0.2,
           activeTurn: legalActions.length > 0 ? 0.8 : 0.4,
@@ -916,149 +824,6 @@
     } catch (_) {}
   }
 
-  // ── Firestore REST Poller ─────────────────────────────────────────────────
-
-  let firestorePollerTimer = null;
-  let firestorePollerSessionId = null;
-  let firestorePollerLastTotalTicks = null;
-  const FIRESTORE_POLL_INTERVAL_MS = 2000;
-  const FIRESTORE_BATTLES_BASE = 'https://firestore.googleapis.com/v1/projects/dfk-user-api/databases/combat-engine/documents/battles/';
-
-  function extractSessionIdFromUrl(url) {
-    const match = String(url || '').match(/\/combat\/hunt\/([^/?#]+)/i);
-    return match ? match[1] : null;
-  }
-
-  const FIRESTORE_HERO_SLOT_REMAP = { 0: 0, 1: 1, 2: 2 };
-
-  function mapFirestoreSideSlot(rawSide, rawSlot) {
-    const side = Number(rawSide);
-    const rawSlotNum = Number.isFinite(Number(rawSlot)) ? Number(rawSlot) : null;
-    if (side === -1) {
-      const mappedSlot = rawSlotNum != null ? rawSlotNum + 3 : null;
-      return { side: 'enemy', slot: mappedSlot };
-    }
-    const mappedSlot = rawSlotNum != null ? (FIRESTORE_HERO_SLOT_REMAP[rawSlotNum] ?? rawSlotNum) : null;
-    return { side: 'player', slot: mappedSlot };
-  }
-
-  function decodeFirestoreValue(field) {
-    if (!field) return null;
-    if (field.integerValue !== undefined) return parseInt(field.integerValue, 10);
-    if (field.doubleValue !== undefined) return Number(field.doubleValue);
-    if (field.stringValue !== undefined) return field.stringValue;
-    if (field.booleanValue !== undefined) return field.booleanValue;
-    if (field.nullValue !== undefined) return null;
-    if (field.arrayValue !== undefined) {
-      return (field.arrayValue.values || []).map(decodeFirestoreValue);
-    }
-    if (field.mapValue !== undefined) {
-      const result = {};
-      const fields = field.mapValue.fields || {};
-      for (const key of Object.keys(fields)) {
-        result[key] = decodeFirestoreValue(fields[key]);
-      }
-      return result;
-    }
-    return null;
-  }
-
-  function decodeFirestorePlayTurns(playTurnsField) {
-    if (!playTurnsField?.arrayValue?.values) return [];
-    return (playTurnsField.arrayValue.values || []).map((item, ordinal) => {
-      const decoded = decodeFirestoreValue(item);
-      if (!decoded) return null;
-      const rawSide = decoded.side ?? null;
-      const rawSlot = decoded.slot ?? null;
-      const ticks = decoded.ticks ?? null;
-      const totalTicks = decoded.totalTicks ?? null;
-      const { side, slot } = mapFirestoreSideSlot(rawSide, rawSlot);
-      const unitId = side === 'enemy'
-        ? `enemy:${slot == null ? 'na' : slot}:firestore_${ordinal}`
-        : `player:${slot == null ? 'na' : slot}:firestore_${ordinal}`;
-      return {
-        unitId,
-        name: side === 'player' ? `Hero ${slot != null ? slot + 1 : ordinal + 1}` : `Enemy ${slot != null ? slot + 1 : ordinal + 1}`,
-        side,
-        slot,
-        ticksUntilTurn: ticks != null ? Number(ticks) : null,
-        totalTicks: totalTicks != null ? Number(totalTicks) : null,
-        ordinal,
-        heroId: null,
-        heroClass: null,
-        level: null,
-        iconUrl: null,
-        source: 'firestore_poller',
-      };
-    }).filter(Boolean);
-  }
-
-  async function pollFirestoreBattle(sessionId) {
-    try {
-      const url = FIRESTORE_BATTLES_BASE + encodeURIComponent(sessionId);
-      const response = await fetch(url, { method: 'GET', credentials: 'omit', cache: 'no-store' });
-      if (!response.ok) return;
-      const json = await response.json();
-      const fields = json?.fields || {};
-      const totalTicksField = fields.totalTicks;
-      const currentTotalTicks = totalTicksField ? decodeFirestoreValue(totalTicksField) : null;
-      if (currentTotalTicks != null && currentTotalTicks === firestorePollerLastTotalTicks) return;
-      firestorePollerLastTotalTicks = currentTotalTicks;
-
-      const playTurns = decodeFirestorePlayTurns(fields.playTurns);
-      if (playTurns.length === 0) return;
-
-      const hasWinner = decodeFirestoreValue(fields.hasWinner);
-      if (hasWinner) {
-        stopFirestorePoller();
-      }
-
-      document.dispatchEvent(new CustomEvent('dfk-network-turn-order', {
-        detail: JSON.parse(JSON.stringify({
-          entries: playTurns,
-          capturedAt: Date.now(),
-          url: url,
-          transport: 'firestore_poller',
-        })),
-      }));
-    } catch (_) {}
-  }
-
-  function startFirestorePoller(sessionId) {
-    stopFirestorePoller();
-    firestorePollerSessionId = sessionId;
-    firestorePollerLastTotalTicks = null;
-    console.log('[DFK Firestore Poller] Starting for session:', sessionId);
-    pollFirestoreBattle(sessionId);
-    firestorePollerTimer = setInterval(() => {
-      pollFirestoreBattle(firestorePollerSessionId);
-    }, FIRESTORE_POLL_INTERVAL_MS);
-  }
-
-  function stopFirestorePoller() {
-    if (firestorePollerTimer != null) {
-      clearInterval(firestorePollerTimer);
-      firestorePollerTimer = null;
-    }
-    firestorePollerSessionId = null;
-    console.log('[DFK Firestore Poller] Stopped');
-  }
-
-  function maybeStartFirestorePoller() {
-    const url = window.location.href;
-    if (!/\/combat\/hunt\//i.test(url)) {
-      stopFirestorePoller();
-      return;
-    }
-    const sessionId = extractSessionIdFromUrl(url);
-    if (!sessionId) return;
-    if (sessionId === firestorePollerSessionId) return;
-    startFirestorePoller(sessionId);
-  }
-
-  window.addEventListener('popstate', maybeStartFirestorePoller);
-  window.addEventListener('hashchange', maybeStartFirestorePoller);
-
   // ── Init ──────────────────────────────────────────────────────────────────
 
   function init() {
@@ -1068,10 +833,9 @@
 
     window.__dfkDetectSession();
 
-    safeStorageGet(['debugMode', 'sessionToken', 'hostUrl', 'selectedCompanionSessionId', 'requiresTabRefresh', 'currentHuntId', 'ownedCompanionSessions'], (result) => {
+    safeStorageGet(['debugMode', 'sessionToken', 'hostUrl'], (result) => {
       debugMode = !!result.debugMode;
       window.__dfkDebugMode = debugMode;
-      applyCompanionState(result || {});
 
       const urlDetection = detectFromUrl(window.location.href);
       const wallet = detectWalletFromPage();
@@ -1084,24 +848,9 @@
       });
     });
 
-    getRuntimeStatus().then((status) => {
-      if (status) applyCompanionState(status);
-    });
-
-    window.setTimeout(() => {
-      if (!companionState.selectedCompanionSessionId) {
-        getRuntimeStatus().then((status) => {
-          if (status) applyCompanionState(status);
-        });
-      }
-    }, 1500);
-
     installSpaHooks();
 
     setInterval(window.__dfkDetectSession, 3000);
-
-    maybeStartFirestorePoller();
-    setInterval(maybeStartFirestorePoller, 5000);
 
     initEngine();
   }
@@ -1132,8 +881,6 @@
     if (msg.type === 'debug_mode_changed') {
       debugMode = msg.enabled;
       window.__dfkDebugMode = debugMode;
-    } else if (msg.type === 'extension_state_update') {
-      applyCompanionState(msg);
     } else if (msg.type === 'hero_profile_loaded') {
       applyHeroProfiles(msg.heroes);
     } else if (msg.type === 'execute_companion_action') {

@@ -57,112 +57,7 @@ export interface TurnOrderEntry {
   side: CombatantSide;
   slot: number | null;
   ticksUntilTurn: number | null;
-  totalTicks?: number | null;
-  turnType?: number | null;
   ordinal: number;
-  heroId?: string | null;
-  heroClass?: string | null;
-  level?: number | null;
-  iconUrl?: string | null;
-  source?: string | null;
-}
-
-export interface TurnOrderHistoryEntry {
-  snapshotId: string;
-  capturedAt: number;
-  turnNumber: number | null;
-  source: string | null;
-  signature: string;
-  activeTurnUnitId: string | null;
-  entries: TurnOrderEntry[];
-}
-
-export interface TurnOrderDeltaChange {
-  unitId: string;
-  name: string;
-  side: CombatantSide;
-  slot: number | null;
-  beforeTicksUntilTurn: number | null;
-  afterTicksUntilTurn: number | null;
-  ticksDelta: number | null;
-  beforeTotalTicks: number | null;
-  afterTotalTicks: number | null;
-  totalTicksDelta: number | null;
-  beforeOrdinal: number | null;
-  afterOrdinal: number | null;
-  turnTypeChanged: boolean;
-}
-
-export interface TurnOrderDelta {
-  snapshotId: string;
-  previousSnapshotId: string | null;
-  capturedAt: number;
-  previousCapturedAt: number | null;
-  turnNumber: number | null;
-  previousTurnNumber: number | null;
-  source: string | null;
-  orderChanged: boolean;
-  activeTurnChanged: boolean;
-  activeTurnBeforeUnitId: string | null;
-  activeTurnAfterUnitId: string | null;
-  added: TurnOrderEntry[];
-  removed: TurnOrderEntry[];
-  changed: TurnOrderDeltaChange[];
-  orderBefore: string[];
-  orderAfter: string[];
-  signatureBefore: string | null;
-  signatureAfter: string;
-}
-
-export type TurnOrderSourceKind = 'runtime' | 'network' | 'modal' | 'strip' | 'none';
-
-export interface TurnOrderDeltaSummary {
-  snapshotId: string | null;
-  previousSnapshotId: string | null;
-  capturedAt: number | null;
-  previousCapturedAt: number | null;
-  turnNumber: number | null;
-  previousTurnNumber: number | null;
-  orderChanged: boolean;
-  activeTurnChanged: boolean;
-  addedCount: number;
-  removedCount: number;
-  changedCount: number;
-  signatureBefore: string | null;
-  signatureAfter: string | null;
-}
-
-export interface TurnOrderDiagnosticCandidate {
-  kind: TurnOrderSourceKind;
-  source: string | null;
-  transport: string | null;
-  count: number;
-  fresh: boolean;
-  ageMs: number | null;
-  confidence: number;
-  reason: string | null;
-  matchedFields: string[];
-  rejectedFields: string[];
-  entries: TurnOrderEntry[];
-}
-
-export interface TurnOrderDiagnostics {
-  snapshotId: string | null;
-  signature: string | null;
-  capturedAt: number | null;
-  turnNumber: number | null;
-  selectedSource: string | null;
-  selectedKind: TurnOrderSourceKind;
-  selectedConfidence: number;
-  selectedReason: string | null;
-  selectedEntries: TurnOrderEntry[];
-  candidates: TurnOrderDiagnosticCandidate[];
-  rankingReasons: string[];
-  fieldMatches: string[];
-  fieldRejections: string[];
-  deltaSummary: TurnOrderDeltaSummary | null;
-  historyCount: number;
-  liveCaptureMode: 'runtime_first' | 'network_fallback' | 'diagnostic_only';
 }
 
 export interface BattleLogTargetDelta {
@@ -242,9 +137,6 @@ export interface CombatFrame {
   combatants: CombatantSnapshot[];
   activeTurn: ActiveTurnSnapshot;
   turnOrder: TurnOrderEntry[];
-  turnOrderHistory?: TurnOrderHistoryEntry[];
-  turnOrderDelta?: TurnOrderDelta | null;
-  turnOrderDiagnostics?: TurnOrderDiagnostics | null;
   battleLogEntries: BattleLogEvent[];
   heroDetail: HeroDetailSnapshot | null;
   captureMeta: CaptureMeta;

@@ -45,7 +45,6 @@ export interface FirebaseBattleMeta {
 export interface FirebaseBattleState {
   huntRef: string;
   meta: FirebaseBattleMeta | null;
-  deckStateSource: 'afterDeckStates' | 'beforeDeckStates' | 'deckStates' | null;
   latestCombatants: Record<string, Record<string, any>> | null;
   normalizedCombatants: {
     heroes: FirebaseCombatantState[];
@@ -61,16 +60,6 @@ function toNumber(value: unknown): number | null {
   if (value == null || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function resolveDeckStates(turn: any): { states: Record<string, any> | null; source: 'afterDeckStates' | 'beforeDeckStates' | 'deckStates' | null } {
-  if (!turn || typeof turn !== 'object') {
-    return { states: null, source: null };
-  }
-  if (turn.afterDeckStates) return { states: turn.afterDeckStates, source: 'afterDeckStates' };
-  if (turn.beforeDeckStates) return { states: turn.beforeDeckStates, source: 'beforeDeckStates' };
-  if (turn.deckStates) return { states: turn.deckStates, source: 'deckStates' };
-  return { states: null, source: null };
 }
 
 function makeCombatantState(sideKey: string, slotKey: string, unit: any): FirebaseCombatantState {
@@ -105,10 +94,9 @@ function makeCombatantState(sideKey: string, slotKey: string, unit: any): Fireba
 }
 
 function buildLatestCombatants(lastTurnWithState: any) {
-  const { states: deckStates } = resolveDeckStates(lastTurnWithState);
-  if (!deckStates) return null;
+  if (!lastTurnWithState?.afterDeckStates) return null;
   const latestCombatants: Record<string, Record<string, any>> = {};
-  for (const [side, slots] of Object.entries(deckStates)) {
+  for (const [side, slots] of Object.entries(lastTurnWithState.afterDeckStates)) {
     latestCombatants[side] = {};
     for (const [slot, unit] of Object.entries((slots as Record<string, any>) || {})) {
       const state = makeCombatantState(side, slot, unit);
@@ -129,12 +117,11 @@ function buildLatestCombatants(lastTurnWithState: any) {
 function normalizeCombatants(lastTurnWithState: any) {
   const heroes: FirebaseCombatantState[] = [];
   const enemies: FirebaseCombatantState[] = [];
-  const { states: deckStates } = resolveDeckStates(lastTurnWithState);
-  if (!deckStates) {
+  if (!lastTurnWithState?.afterDeckStates) {
     return { heroes, enemies };
   }
 
-  for (const [side, slots] of Object.entries(deckStates)) {
+  for (const [side, slots] of Object.entries(lastTurnWithState.afterDeckStates)) {
     for (const [slot, unit] of Object.entries((slots as Record<string, any>) || {})) {
       const state = makeCombatantState(side, slot, unit);
       if (state.side === 1) heroes.push(state);
@@ -148,7 +135,6 @@ function normalizeCombatants(lastTurnWithState: any) {
 }
 
 function normalizeTurn(doc: any): FirebaseTurnState {
-  const { states: deckStates } = resolveDeckStates(doc);
   return {
     turnId: doc._id,
     turn: toNumber(doc.currentTurnCount),
@@ -157,9 +143,9 @@ function normalizeTurn(doc: any): FirebaseTurnState {
     activeSlot: toNumber(doc.activeSlot),
     actionType: doc.attackOutcome?.attackType || null,
     battleLog: doc.attackOutcome?.battleLog || null,
-    afterHp: deckStates
+    afterHp: doc.afterDeckStates
       ? Object.fromEntries(
-          Object.entries(deckStates).map(([side, slots]) => [
+          Object.entries(doc.afterDeckStates).map(([side, slots]) => [
             side,
             Object.fromEntries(
               Object.entries((slots as Record<string, any>) || {}).map(([slot, unit]) => [slot, toNumber((unit as any)?.health)]),
@@ -171,8 +157,7 @@ function normalizeTurn(doc: any): FirebaseTurnState {
 }
 
 export function buildFirebaseBattleState(huntRef: string, battleMeta: any, allDocs: any[]): FirebaseBattleState {
-  const lastTurnWithState = [...allDocs].reverse().find((doc) => resolveDeckStates(doc).states);
-  const { source: deckStateSource } = resolveDeckStates(lastTurnWithState);
+  const lastTurnWithState = [...allDocs].reverse().find((doc) => doc.afterDeckStates);
   const latestCombatants = buildLatestCombatants(lastTurnWithState);
   const normalizedCombatants = normalizeCombatants(lastTurnWithState);
   const turns = allDocs.map(normalizeTurn);
@@ -195,7 +180,6 @@ export function buildFirebaseBattleState(huntRef: string, battleMeta: any, allDo
           playerUids: battleMeta.playerUids ?? null,
         }
       : null,
-    deckStateSource,
     latestCombatants,
     normalizedCombatants,
     turns,

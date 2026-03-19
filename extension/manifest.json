@@ -26,7 +26,6 @@
     {
       "matches": ["*://game.defikingdoms.com/*"],
       "js": [
-        "parsers/reactRuntime.js",
         "interceptors/networkCapture.js",
         "interceptors/networkNormalizer.js"
       ],
@@ -36,7 +35,6 @@
     {
       "matches": ["*://game.defikingdoms.com/*"],
       "js": [
-        "parsers/reactRuntime.js",
         "parsers/battleLog.js",
         "parsers/statPanel.js",
         "parsers/turnState.js",

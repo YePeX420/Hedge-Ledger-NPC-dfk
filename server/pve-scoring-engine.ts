@@ -13,11 +13,6 @@ import {
   type MasterConsumable,
   type StatBlock,
 } from './pve-master-data';
-import type {
-  TurnOrderDelta,
-  TurnOrderHistoryEntry,
-  TurnOrderEntry,
-} from '../shared/pveCombatFrame';
 
 export interface HeroState {
   heroId: string;
@@ -65,15 +60,11 @@ export interface EnemyState {
 export interface BattleState {
   turnNumber: number;
   activeHeroSlot: number;
-  activeTurnUnitId?: string | null;
   heroes: HeroState[];
   enemies: EnemyState[];
   enemy: EnemyEntry;
   battleBudgetRemaining?: number | null;
   consumableQuantities?: Record<string, number>;
-  turnOrder?: TurnOrderEntry[];
-  turnOrderHistory?: TurnOrderHistoryEntry[];
-  turnOrderDelta?: TurnOrderDelta | null;
 }
 
 export interface Recommendation {
@@ -88,7 +79,6 @@ export interface Recommendation {
   debuffValue: number;
   manaEfficiency: number;
   initiativePenalty: number;
-  initiativeTempo?: number;
   totalScore: number;
   reasoning: string;
   highVariance?: boolean;
@@ -105,75 +95,6 @@ const SCORE_WEIGHTS = {
 
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
-}
-
-function findTurnOrderEntryForHero(state: BattleState, hero: HeroState): TurnOrderEntry | null {
-  const entries = Array.isArray(state.turnOrder) ? state.turnOrder : [];
-  if (entries.length === 0) return null;
-
-  const heroId = String(hero.heroId || '').trim();
-  const heroClass = String(hero.mainClass || '').trim().toLowerCase();
-  const slot = Number(hero.slot);
-
-  return entries.find((entry) => {
-    if (entry.side !== 'player') return false;
-    if (entry.slot != null && Number(entry.slot) === slot) return true;
-    if (heroId && entry.heroId && String(entry.heroId) === heroId) return true;
-    if (entry.unitId && entry.unitId.includes(`:${slot}:`)) return true;
-    if (heroClass && String(entry.heroClass || '').trim().toLowerCase() === heroClass) return true;
-    return false;
-  }) || null;
-}
-
-function getTurnOrderTempoScore(state: BattleState, hero: HeroState): number {
-  const heroEntry = findTurnOrderEntryForHero(state, hero);
-  if (!heroEntry) return 0;
-
-  const ticks = heroEntry.ticksUntilTurn;
-  const tickValues = (state.turnOrder || [])
-    .map((entry) => entry.ticksUntilTurn)
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  const minTicks = tickValues.length > 0 ? Math.min(...tickValues) : null;
-  const maxTicks = tickValues.length > 0 ? Math.max(...tickValues) : null;
-
-  let leadScore = 0;
-  if (ticks != null && minTicks != null && maxTicks != null && maxTicks > minTicks) {
-    const normalized = (ticks - minTicks) / Math.max(1, maxTicks - minTicks);
-    leadScore = 1 - clamp(normalized, 0, 1);
-  } else if (ticks != null) {
-    leadScore = ticks <= 0 ? 1 : 0;
-  }
-
-  const deltaChange = state.turnOrderDelta?.changed.find((change) => change.unitId === heroEntry.unitId) || null;
-  const deltaScore = deltaChange?.ticksDelta != null
-    ? clamp((-deltaChange.ticksDelta) / Math.max(1, Math.abs(ticks ?? deltaChange.afterTicksUntilTurn ?? 1) + 1), -1, 1) * 0.5
-    : 0;
-
-  const historySamples = (state.turnOrderHistory || [])
-    .slice(-5)
-    .map((snapshot) => snapshot.entries.find((entry) => entry.unitId === heroEntry.unitId) || null)
-    .filter((entry): entry is TurnOrderEntry => !!entry && entry.ticksUntilTurn != null)
-    .map((entry) => entry.ticksUntilTurn as number);
-  const historyScore = historySamples.length >= 2
-    ? clamp((historySamples[0] - historySamples[historySamples.length - 1]) / Math.max(1, Math.max(...historySamples)), -1, 1) * 0.25
-    : 0;
-
-  return clamp((leadScore - 0.5) * 0.2 + deltaScore + historyScore, -0.2, 0.2);
-}
-
-function getTempoAdjustedScore(baseTempo: number, kind: 'offense' | 'defense' | 'control' | 'consumable' | 'neutral'): number {
-  switch (kind) {
-    case 'offense':
-      return baseTempo;
-    case 'control':
-      return baseTempo * 0.8;
-    case 'defense':
-      return -baseTempo * 0.5;
-    case 'consumable':
-      return baseTempo * 0.6;
-    default:
-      return baseTempo * 0.4;
-  }
 }
 
 function buildStatBlock(hero: HeroState): StatBlock {
@@ -360,7 +281,6 @@ export function scoreActions(state: BattleState, legalActions?: string[]): Recom
   if (!hero || !hero.isAlive) return [];
 
   const statBlock = buildStatBlock(hero);
-  const turnOrderTempo = getTurnOrderTempoScore(state, hero);
   const candidates = enumerateActions(hero, state, legalActions);
   const recommendations: Recommendation[] = [];
 
@@ -376,7 +296,6 @@ export function scoreActions(state: BattleState, legalActions?: string[]): Recom
       const initMod = consumable.initiativeModifier ?? 0;
       const initPenaltyScore = initMod / 1000;
       const budgetOpportunityCost = (candidate.budgetCost ?? 0) / Math.max(1, state.battleBudgetRemaining ?? 1);
-      const tempoAdjustment = getTempoAdjustedScore(turnOrderTempo, 'consumable');
 
       const healEffect = consumable.effects.find((e: Record<string, unknown>) => (e.type as string) === 'heal_percent_max_hp');
       const manaEffect = consumable.effects.find((e: Record<string, unknown>) => (e.type as string) === 'restore_percent_max_mp');
@@ -395,10 +314,9 @@ export function scoreActions(state: BattleState, legalActions?: string[]): Recom
         reasoning += ` — restores ~${restore} MP (${pct}% max MP)`;
       }
       if (initMod < 0) reasoning += ` [${initMod} initiative]`;
-      if (tempoAdjustment !== 0) reasoning += ` [tempo ${tempoAdjustment >= 0 ? '+' : ''}${Math.round(tempoAdjustment * 1000) / 1000}]`;
 
       const baseScore = survivalLift * 0.5 + hpUrgency + mpUrgency - budgetOpportunityCost * 0.2;
-      const totalScore = clamp(baseScore + initPenaltyScore + tempoAdjustment, 0, 2);
+      const totalScore = clamp(baseScore + initPenaltyScore, 0, 2);
 
       recommendations.push({
         rank: 0,
@@ -412,7 +330,6 @@ export function scoreActions(state: BattleState, legalActions?: string[]): Recom
         debuffValue: 0,
         manaEfficiency: 0,
         initiativePenalty: initMod,
-        initiativeTempo: Math.round(tempoAdjustment * 1000) / 1000,
         totalScore: Math.round(totalScore * 1000) / 1000,
         reasoning,
       });
@@ -431,13 +348,6 @@ export function scoreActions(state: BattleState, legalActions?: string[]): Recom
       const accMult = ability ? getAccuracyPenaltyMultiplier(ability.accModifierPct ?? 0) : 1.0;
       const initPenalty = ability ? getInitiativePenaltyScore(ability) : 0;
       const highVariance = ability ? isHighVarianceAbility(ability) : false;
-      const tempoAdjustment = getTempoAdjustedScore(
-        turnOrderTempo,
-        abilityType === 'heal' || abilityType === 'barrier' ? 'defense'
-          : abilityType === 'cc' ? 'control'
-          : abilityType === 'physical_damage' || abilityType === 'magical_damage' || abilityType === 'execute' ? 'offense'
-          : 'neutral',
-      );
 
       if (!ability) {
         const rawDmg = statBlock.attack != null
@@ -548,11 +458,6 @@ export function scoreActions(state: BattleState, legalActions?: string[]): Recom
         reasoning += ` [channels ${ability.channelInitiative} init]`;
       }
 
-      totalScore += tempoAdjustment;
-      if (tempoAdjustment !== 0) {
-        reasoning += ` [tempo ${tempoAdjustment >= 0 ? '+' : ''}${Math.round(tempoAdjustment * 1000) / 1000}]`;
-      }
-
       recommendations.push({
         rank: 0,
         action: `${skillName}${target.slot !== null ? ` → ${target.targetType} ${target.slot}` : ''}`,
@@ -565,7 +470,6 @@ export function scoreActions(state: BattleState, legalActions?: string[]): Recom
         debuffValue: Math.round(debuffValue * 100) / 100,
         manaEfficiency: Math.round(manaEfficiency * 100) / 100,
         initiativePenalty: ability?.initiativeLoss ?? 0,
-        initiativeTempo: Math.round(tempoAdjustment * 1000) / 1000,
         totalScore: Math.round(totalScore * 1000) / 1000,
         reasoning,
         highVariance: highVariance || undefined,

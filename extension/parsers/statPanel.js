@@ -69,10 +69,6 @@ console.log('[DFK StatPanel] Script file loaded');
     return String(value || '').replace(/\s+/g, ' ').trim();
   }
 
-  function normalizedName(value) {
-    return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  }
-
   function extractImageUrl(el) {
     if (!el) return null;
     if (el.tagName === 'IMG') {
@@ -160,81 +156,6 @@ console.log('[DFK StatPanel] Script file loaded');
     return [...new Set((values || []).map(v => (v || '').trim()).filter(Boolean))];
   }
 
-  const RUNTIME_COMBATANT_CACHE_TTL_MS = 15000;
-  const runtimeCombatantPanelCache = new WeakMap();
-  const runtimeCombatantIdentityCache = new Map();
-  let runtimeCombatantCacheHitCount = 0;
-  let runtimeCombatantDeepFindCount = 0;
-  let latestRuntimeCombatantMetrics = null;
-  let lastRuntimeCombatantInvalidationReason = null;
-
-  function buildCombatantIdentityKey(unitName, unitSide) {
-    const nameKey = normalizedName(unitName);
-    if (!nameKey) return null;
-    return `name:${nameKey}:${unitSide || 'na'}`;
-  }
-
-  function getFreshRuntimeCombatantEntry(entry) {
-    if (!entry) return null;
-    const ageMs = Date.now() - (entry.capturedAt || 0);
-    if (ageMs > RUNTIME_COMBATANT_CACHE_TTL_MS) return null;
-    return entry;
-  }
-
-  function rememberRuntimeCombatant(panelEl, runtimeCombatant, cacheMeta) {
-    if (!runtimeCombatant) return;
-    const entry = {
-      rootEl: panelEl,
-      containerRef: cacheMeta?.containerRef || null,
-      capturedAt: Date.now(),
-      combatantKey: runtimeCombatant.combatantKey || null,
-      result: runtimeCombatant,
-    };
-    runtimeCombatantPanelCache.set(panelEl, entry);
-    if (runtimeCombatant.combatantKey) {
-      runtimeCombatantIdentityCache.set(runtimeCombatant.combatantKey, entry);
-    }
-    const fallbackKey = buildCombatantIdentityKey(runtimeCombatant.baseCombatant?.name, runtimeCombatant.currentLocation?.side === -1 ? 'enemy' : 'player');
-    if (fallbackKey) {
-      runtimeCombatantIdentityCache.set(fallbackKey, entry);
-    }
-  }
-
-  function applyRuntimeCombatantToSnapshot(snapshot, runtimeCombatant, debugMeta, debugMode) {
-    if (!runtimeCombatant) return;
-    snapshot.runtimeCombatant = runtimeCombatant;
-    snapshot.runtimeBattleData = runtimeCombatant.battleData || null;
-    const baseCombatant = runtimeCombatant.baseCombatant || null;
-    const runtimeSide = runtimeCombatant.currentLocation?.side;
-    if (!snapshot.unitName && baseCombatant?.name) snapshot.unitName = baseCombatant.name;
-    if (!snapshot.level && baseCombatant?.level != null) snapshot.level = baseCombatant.level;
-    if ((!snapshot.unitSide || snapshot.unitSide === 'player') && runtimeSide != null) {
-      snapshot.unitSide = Number(runtimeSide) === -1 ? 'enemy' : 'player';
-    }
-    if (snapshot.heroDetail) {
-      snapshot.heroDetail = {
-        ...snapshot.heroDetail,
-        name: snapshot.heroDetail.name || baseCombatant?.name || null,
-        level: snapshot.heroDetail.level ?? baseCombatant?.level ?? null,
-        heroClass: snapshot.heroDetail.heroClass || baseCombatant?.mainClassStr || null,
-        runtimeState: runtimeCombatant,
-      };
-    }
-    if (debugMode) {
-      debugMeta.runtimeCombatant = {
-        baseCombatant: baseCombatant || null,
-        attackConfigCount: Array.isArray(runtimeCombatant.attackConfigs) ? runtimeCombatant.attackConfigs.length : 0,
-        comboTrackerCount: Array.isArray(runtimeCombatant.comboTrackers) ? runtimeCombatant.comboTrackers.length : 0,
-        passiveTrackerCount: Array.isArray(runtimeCombatant.passiveTrackers) ? runtimeCombatant.passiveTrackers.length : 0,
-      };
-      debugMeta.runtimeCombatantMetrics = runtimeCombatant.metrics || null;
-    }
-    window.__dfkSelectorDiag.runtime_combatant_metrics = runtimeCombatant.metrics || null;
-    window.__dfkSelectorDiag.runtime_combatant_cache_hit_count = runtimeCombatantCacheHitCount;
-    window.__dfkSelectorDiag.runtime_combatant_deep_find_count = runtimeCombatantDeepFindCount;
-    window.__dfkSelectorDiag.runtime_combatant_last_invalidation_reason = lastRuntimeCombatantInvalidationReason || null;
-  }
-
   function isLikelyUnitName(text) {
     const value = normalizeText(text);
     if (!value || value.length < 4 || value.length > 40) return false;
@@ -298,8 +219,6 @@ console.log('[DFK StatPanel] Script file loaded');
       secondaryArms: [],
       iconUrl: null,
       heroDetail: null,
-      runtimeCombatant: null,
-      runtimeBattleData: null,
       parseConfidence: 0,
     };
 
@@ -533,33 +452,6 @@ console.log('[DFK StatPanel] Script file loaded');
       };
     }
 
-    const fallbackIdentityKey = buildCombatantIdentityKey(snapshot.unitName, snapshot.unitSide);
-    const cachedIdentityEntry = getFreshRuntimeCombatantEntry(fallbackIdentityKey ? runtimeCombatantIdentityCache.get(fallbackIdentityKey) : null);
-    if (cachedIdentityEntry?.result) {
-      runtimeCombatantCacheHitCount += 1;
-      latestRuntimeCombatantMetrics = {
-        cacheHit: true,
-        usedContainerRef: false,
-        usedDeepFind: false,
-        visitedNodes: 0,
-        durationMs: 0,
-      };
-      lastRuntimeCombatantInvalidationReason = null;
-      cachedIdentityEntry.result.metrics = latestRuntimeCombatantMetrics;
-      applyRuntimeCombatantToSnapshot(snapshot, cachedIdentityEntry.result, debugMeta, debugMode);
-    } else if (window.__dfkReactRuntime?.extractCombatantRuntimeCached) {
-      const previousCache = runtimeCombatantPanelCache.get(panelEl) || null;
-      const runtimeResult = window.__dfkReactRuntime.extractCombatantRuntimeCached(panelEl, previousCache);
-      latestRuntimeCombatantMetrics = runtimeResult?.metrics || null;
-      if (runtimeResult?.metrics?.cacheHit) runtimeCombatantCacheHitCount += 1;
-      if (runtimeResult?.metrics?.usedDeepFind) runtimeCombatantDeepFindCount += 1;
-      lastRuntimeCombatantInvalidationReason = runtimeResult?.invalidationReason || null;
-      if (runtimeResult?.runtime) {
-        applyRuntimeCombatantToSnapshot(snapshot, runtimeResult.runtime, debugMeta, debugMode);
-        rememberRuntimeCombatant(panelEl, runtimeResult.runtime, runtimeResult.cache);
-      }
-    }
-
     snapshot.buffs = uniqueStrings(snapshot.buffs);
     snapshot.debuffs = uniqueStrings(snapshot.debuffs);
     snapshot.traits = uniqueStrings(snapshot.traits);
@@ -583,15 +475,7 @@ console.log('[DFK StatPanel] Script file loaded');
       snapshot.fieldConfidence[key] = meta ? (meta.source?.startsWith('data-stat') ? 1.0 : 0.7) : 0.5;
     }
 
-    snapshot._debug = debugMode
-      ? debugMeta
-      : {
-          runtimeCombatantMetrics: latestRuntimeCombatantMetrics || null,
-          runtimeCombatantInvalidationReason: lastRuntimeCombatantInvalidationReason || null,
-        };
-    if (!debugMode && !snapshot._debug.runtimeCombatantMetrics && !snapshot._debug.runtimeCombatantInvalidationReason) {
-      delete snapshot._debug;
-    }
+    if (debugMode) snapshot._debug = debugMeta;
 
     return snapshot;
   }

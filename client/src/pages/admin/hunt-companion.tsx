@@ -111,7 +111,6 @@ interface HeroDetailData {
   items: string[];
   primaryArms?: string[];
   secondaryArms?: string[];
-  runtimeState?: unknown;
 }
 
 interface CombatFrame {
@@ -139,7 +138,6 @@ interface CombatFrame {
     stats: Record<string, number | null>;
     resistances?: Record<string, number | null>;
     heroDetail?: HeroDetailData | null;
-    engineState?: unknown;
     sourceConfidence: number;
   }>;
   activeTurn: {
@@ -153,102 +151,15 @@ interface CombatFrame {
     visibleLockouts: Record<string, number | null>;
     battleBudgetRemaining: number | null;
   };
-  turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; totalTicks?: number | null; ordinal: number; heroId?: string | null; heroClass?: string | null; level?: number | null; iconUrl?: string | null; source?: string | null }>;
-  turnOrderHistory?: Array<{ snapshotId: string; capturedAt: number; turnNumber: number | null; source: string | null; signature: string; activeTurnUnitId: string | null; entries: CombatFrame['turnOrder'] }>;
-  turnOrderDelta?: {
-    snapshotId: string;
-    previousSnapshotId: string | null;
-    capturedAt: number;
-    previousCapturedAt: number | null;
-    turnNumber: number | null;
-    previousTurnNumber: number | null;
-    source: string | null;
-    orderChanged: boolean;
-    activeTurnChanged: boolean;
-    activeTurnBeforeUnitId: string | null;
-    activeTurnAfterUnitId: string | null;
-    added: CombatFrame['turnOrder'];
-    removed: CombatFrame['turnOrder'];
-    changed: Array<{
-      unitId: string;
-      name: string;
-      side: 'player' | 'enemy';
-      slot: number | null;
-      beforeTicksUntilTurn: number | null;
-      afterTicksUntilTurn: number | null;
-      ticksDelta: number | null;
-      beforeTotalTicks: number | null;
-      afterTotalTicks: number | null;
-      totalTicksDelta: number | null;
-      beforeOrdinal: number | null;
-      afterOrdinal: number | null;
-      turnTypeChanged: boolean;
-    }>;
-    orderBefore: string[];
-    orderAfter: string[];
-    signatureBefore: string | null;
-    signatureAfter: string;
-  } | null;
-  turnOrderDiagnostics?: {
-    snapshotId: string | null;
-    signature: string | null;
-    capturedAt: number | null;
-    turnNumber: number | null;
-    selectedSource: string | null;
-    selectedKind: 'runtime' | 'network' | 'modal' | 'strip' | 'none';
-    selectedConfidence: number;
-    selectedReason: string | null;
-    selectedEntries: CombatFrame['turnOrder'];
-    candidates: Array<{
-      kind: 'runtime' | 'network' | 'modal' | 'strip' | 'none';
-      source: string | null;
-      transport: string | null;
-      count: number;
-      fresh: boolean;
-      ageMs: number | null;
-      confidence: number;
-      reason: string | null;
-      matchedFields: string[];
-      rejectedFields: string[];
-      entries: CombatFrame['turnOrder'];
-    }>;
-    rankingReasons: string[];
-    fieldMatches: string[];
-    fieldRejections: string[];
-    deltaSummary: {
-      snapshotId: string | null;
-      previousSnapshotId: string | null;
-      capturedAt: number | null;
-      previousCapturedAt: number | null;
-      turnNumber: number | null;
-      previousTurnNumber: number | null;
-      orderChanged: boolean;
-      activeTurnChanged: boolean;
-      addedCount: number;
-      removedCount: number;
-      changedCount: number;
-      signatureBefore: string | null;
-      signatureAfter: string | null;
-    } | null;
-    historyCount: number;
-    liveCaptureMode: 'runtime_first' | 'network_fallback' | 'diagnostic_only';
-  } | null;
+  turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; ordinal: number; heroId?: string | null; heroClass?: string | null; level?: number | null; iconUrl?: string | null }>;
   battleLogEntries: Array<{ turnNumber: number; actorName: string | null; ability: string | null; outcomes: string[]; rawText?: string | null }>;
   heroDetail: HeroDetailData | null;
-  predictionInputs?: Record<string, unknown> | null;
   captureMeta: {
     source: string;
     capturedAt: number;
     confidence: Record<string, number>;
-    runtimeBattleData?: Record<string, unknown> | null;
   };
 }
-
-type TurnOrderEntry = CombatFrame['turnOrder'][number];
-type TurnOrderHistoryEntry = NonNullable<CombatFrame['turnOrderHistory']>[number];
-type TurnOrderDiagnostics = NonNullable<CombatFrame['turnOrderDiagnostics']>;
-type TurnOrderDiagnosticsCandidate = TurnOrderDiagnostics['candidates'][number];
-type TurnOrderDiagnosticsDeltaSummary = NonNullable<TurnOrderDiagnostics['deltaSummary']>;
 
 interface SessionData {
   id: number;
@@ -284,26 +195,6 @@ interface CompanionSessionDetailResponse {
   combatFrame?: CombatFrame | null;
   connectedClients?: number;
   latestHuntId?: string | null;
-}
-
-interface CompanionSessionView extends SessionData {
-  selectedAt: string | null;
-  refreshRequestedAt: string | null;
-  needsRefresh: boolean;
-}
-
-function normalizeCompanionSession(session: SessionData | null | undefined): CompanionSessionView | null {
-  if (!session) return null;
-  return {
-    ...session,
-    selectedAt: session.selected_by_extension_at || null,
-    refreshRequestedAt: session.refresh_required_at || null,
-    needsRefresh: Boolean(session.requires_tab_refresh || session.refresh_required_at),
-  };
-}
-
-function formatSessionDate(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleString() : 'n/a';
 }
 
 interface HeroStateRaw {
@@ -359,7 +250,6 @@ interface FirebaseBattleState {
     chainId: number | null;
     playerUids: unknown;
   } | null;
-  deckStateSource: 'afterDeckStates' | 'beforeDeckStates' | 'deckStates' | null;
   latestCombatants: Record<string, Record<string, FirebaseUnit>> | null;
   normalizedCombatants: {
     heroes: FirebaseUnit[];
@@ -488,30 +378,9 @@ function firebaseToEnemySnapshot(unit: FirebaseUnit, fallbackIndex: number): Ene
 }
 
 function buildFirebaseBattleView(firebaseState: FirebaseBattleState | undefined, combatFrame: CombatFrame | null): BattleStateMsg | null {
-  if (!firebaseState) return null;
-
-  const normalizedHeroes = firebaseState.normalizedCombatants?.heroes || [];
-  const normalizedEnemies = firebaseState.normalizedCombatants?.enemies || [];
-  const latestHeroes = Object.entries(firebaseState.latestCombatants?.['1'] || {})
-    .sort(([slotA], [slotB]) => Number(slotA) - Number(slotB))
-    .map(([slot, unit], index) => {
-      const parsedSlot = Number(slot);
-      return firebaseToHeroSnapshot(unit as FirebaseUnit, Number.isFinite(parsedSlot) ? parsedSlot : index);
-    });
-  const latestEnemies = Object.entries(firebaseState.latestCombatants?.['-1'] || {})
-    .sort(([slotA], [slotB]) => Number(slotA) - Number(slotB))
-    .map(([slot, unit], index) => {
-      const parsedSlot = Number(slot);
-      return firebaseToEnemySnapshot(unit as FirebaseUnit, Number.isFinite(parsedSlot) ? parsedSlot : index);
-    });
-
-  const heroes = normalizedHeroes.length > 0
-    ? normalizedHeroes.map((unit, index) => firebaseToHeroSnapshot(unit, index))
-    : latestHeroes;
-  const enemies = normalizedEnemies.length > 0
-    ? normalizedEnemies.map((unit, index) => firebaseToEnemySnapshot(unit, index))
-    : latestEnemies;
-
+  if (!firebaseState?.normalizedCombatants) return null;
+  const heroes = (firebaseState.normalizedCombatants.heroes || []).map(firebaseToHeroSnapshot);
+  const enemies = (firebaseState.normalizedCombatants.enemies || []).map(firebaseToEnemySnapshot);
   const domActiveHeroSlot = combatFrame?.activeTurn.activeSide === 'player'
     ? (combatFrame.activeTurn.activeSlot ?? null)
     : null;
@@ -643,20 +512,16 @@ function formatCombatantTurnLabel({
   name,
   heroClass,
   level,
-  ticksUntilTurn,
 }: {
   name: string;
   heroClass?: string | null;
   level?: number | null;
-  ticksUntilTurn?: number | null;
 }) {
   const displayName = formatCombatName(name);
-  const segments: string[] = [];
-  if (heroClass && normalizeLookupKey(heroClass) !== normalizeLookupKey(name)) segments.push(heroClass);
-  segments.push(displayName);
-  if (level != null && level > 0) segments.push(`Lv.${level}`);
-  if (ticksUntilTurn != null) segments.push(ticksUntilTurn.toFixed(3));
-  return segments.join(' - ');
+  const suffix: string[] = [];
+  if (heroClass && normalizeLookupKey(heroClass) !== normalizeLookupKey(name)) suffix.push(heroClass);
+  if (level != null && level > 0) suffix.push(`Lvl ${level}`);
+  return suffix.length ? `${displayName} (${suffix.join(' - ')})` : displayName;
 }
 
 function normalizeLookupKey(value: string | null | undefined): string {
@@ -732,19 +597,13 @@ function mergeCombatFrames(
         return {
           ...row,
           ticksUntilTurn: row.ticksUntilTurn != null ? row.ticksUntilTurn : (prevMatch?.ticksUntilTurn ?? null),
-          totalTicks: row.totalTicks != null ? row.totalTicks : (prevMatch?.totalTicks ?? null),
           heroId: row.heroId || prevMatch?.heroId || null,
           heroClass: row.heroClass || prevMatch?.heroClass || null,
           level: row.level ?? prevMatch?.level ?? null,
           iconUrl: row.iconUrl || prevMatch?.iconUrl || null,
-          source: row.source || prevMatch?.source || null,
         };
       })
     : prevTurnOrder;
-  const mergedTurnOrderHistory = (next.turnOrderHistory && next.turnOrderHistory.length > 0)
-    ? next.turnOrderHistory
-    : (prev.turnOrderHistory || []);
-  const mergedTurnOrderDiagnostics = next.turnOrderDiagnostics || prev.turnOrderDiagnostics || null;
   const mergedCombatants = (next.combatants || []).map((unit) => {
     const prevUnit = (prev.combatants || []).find((candidate) => candidate.unitId === unit.unitId);
     return {
@@ -752,7 +611,6 @@ function mergeCombatFrames(
       iconUrl: unit.iconUrl || prevUnit?.iconUrl || null,
       heroClass: unit.heroClass || prevUnit?.heroClass || null,
       heroDetail: unit.heroDetail || prevUnit?.heroDetail || null,
-      engineState: unit.engineState || prevUnit?.engineState || null,
       buffs: unit.buffs?.length ? unit.buffs : (prevUnit?.buffs || []),
       debuffs: unit.debuffs?.length ? unit.debuffs : (prevUnit?.debuffs || []),
       visibleEffects: unit.visibleEffects?.length ? unit.visibleEffects : (prevUnit?.visibleEffects || []),
@@ -762,131 +620,7 @@ function mergeCombatFrames(
     ...next,
     combatants: mergedCombatants,
     turnOrder: mergedTurnOrder,
-    turnOrderHistory: mergedTurnOrderHistory,
-    turnOrderDelta: next.turnOrderDelta ?? prev.turnOrderDelta ?? null,
-    turnOrderDiagnostics: mergedTurnOrderDiagnostics,
-    predictionInputs: next.predictionInputs || prev.predictionInputs || null,
-    captureMeta: {
-      ...(prev.captureMeta || {}),
-      ...(next.captureMeta || {}),
-      runtimeBattleData: next.captureMeta?.runtimeBattleData || prev.captureMeta?.runtimeBattleData || null,
-    },
   };
-}
-
-function compareTurnOrderSequences(previous: TurnOrderEntry[] | null | undefined, next: TurnOrderEntry[]) {
-  const previousRows = Array.isArray(previous) ? previous : [];
-  const nextRows = Array.isArray(next) ? next : [];
-  const previousMap = new Map(previousRows.map((entry) => [entry.unitId, entry] as const));
-  const nextMap = new Map(nextRows.map((entry) => [entry.unitId, entry] as const));
-  const added = nextRows.filter((entry) => !previousMap.has(entry.unitId));
-  const removed = previousRows.filter((entry) => !nextMap.has(entry.unitId));
-  const changed = nextRows.map((entry) => {
-    const before = previousMap.get(entry.unitId);
-    if (!before) return null;
-    const beforeTicks = before.ticksUntilTurn ?? null;
-    const afterTicks = entry.ticksUntilTurn ?? null;
-    const beforeTotalTicks = before.totalTicks ?? null;
-    const afterTotalTicks = entry.totalTicks ?? null;
-    const beforeOrdinal = before.ordinal ?? null;
-    const afterOrdinal = entry.ordinal ?? null;
-    const turnTypeChanged = (before.turnType ?? null) !== (entry.turnType ?? null);
-    const ticksChanged = beforeTicks !== afterTicks;
-    const totalTicksChanged = beforeTotalTicks !== afterTotalTicks;
-    const ordinalChanged = beforeOrdinal !== afterOrdinal;
-    if (!ticksChanged && !totalTicksChanged && !ordinalChanged && !turnTypeChanged) return null;
-    return {
-      unitId: entry.unitId,
-      name: entry.name,
-      side: entry.side,
-      slot: entry.slot,
-      beforeTicksUntilTurn: beforeTicks,
-      afterTicksUntilTurn: afterTicks,
-      ticksDelta: beforeTicks != null && afterTicks != null ? Math.round((afterTicks - beforeTicks) * 1000) / 1000 : null,
-      beforeTotalTicks,
-      afterTotalTicks,
-      totalTicksDelta: beforeTotalTicks != null && afterTotalTicks != null
-        ? Math.round((afterTotalTicks - beforeTotalTicks) * 1000) / 1000
-        : null,
-      beforeOrdinal,
-      afterOrdinal,
-      turnTypeChanged,
-    };
-  }).filter(Boolean) as Array<{
-    unitId: string;
-    name: string;
-    side: 'player' | 'enemy';
-    slot: number | null;
-    beforeTicksUntilTurn: number | null;
-    afterTicksUntilTurn: number | null;
-    ticksDelta: number | null;
-    beforeTotalTicks: number | null;
-    afterTotalTicks: number | null;
-    totalTicksDelta: number | null;
-    beforeOrdinal: number | null;
-    afterOrdinal: number | null;
-    turnTypeChanged: boolean;
-  }>;
-  const orderBefore = previousRows.map((entry) => entry.unitId);
-  const orderAfter = nextRows.map((entry) => entry.unitId);
-  const orderChanged = orderBefore.length !== orderAfter.length || orderBefore.some((unitId, index) => orderAfter[index] !== unitId);
-  return {
-    orderChanged,
-    added,
-    removed,
-    changed,
-    orderBefore,
-    orderAfter,
-  };
-}
-
-function formatTurnOrderSourceLabel(kind: TurnOrderDiagnostics['selectedKind'] | null | undefined) {
-  switch (kind) {
-    case 'runtime':
-      return 'Runtime';
-    case 'network':
-      return 'Network';
-    case 'modal':
-      return 'Modal';
-    case 'strip':
-      return 'Strip';
-    default:
-      return 'None';
-  }
-}
-
-function getTurnOrderSourceKindFromValue(value: string | null | undefined): TurnOrderDiagnostics['selectedKind'] {
-  const text = String(value || '').toLowerCase();
-  if (text.startsWith('runtime')) return 'runtime';
-  if (text.startsWith('network')) return 'network';
-  if (text.startsWith('modal')) return 'modal';
-  if (text.startsWith('strip') || text === 'dom') return 'strip';
-  return 'none';
-}
-
-function formatTurnOrderConfidence(confidence: number | null | undefined) {
-  if (confidence == null || Number.isNaN(confidence)) return '0%';
-  return `${Math.round(confidence * 100)}%`;
-}
-
-function formatTurnOrderAge(ageMs: number | null | undefined) {
-  if (ageMs == null || Number.isNaN(ageMs)) return 'n/a';
-  if (ageMs < 1000) return `${Math.max(0, Math.round(ageMs))}ms`;
-  return `${(ageMs / 1000).toFixed(ageMs >= 10000 ? 0 : 1)}s`;
-}
-
-function formatTurnOrderTickValue(value: number | null | undefined) {
-  if (value == null || Number.isNaN(value)) return 'n/a';
-  return Number(value).toFixed(3).replace(/\.?0+$/, '');
-}
-
-function formatTurnOrderSequence(entries: TurnOrderEntry[] | null | undefined) {
-  const rows = Array.isArray(entries) ? entries : [];
-  if (rows.length === 0) return 'No entries';
-  return rows.map((entry) => {
-    const tickLabel = entry.ticksUntilTurn != null ? formatTurnOrderTickValue(entry.ticksUntilTurn) : 'order';
-    return `${formatCombatName(entry.name)} (${tickLabel})`;
-  }).join(' -> ');
 }
 
 function getSyncIssues(firebaseState: FirebaseBattleState | undefined, domActionState: DomActionState): string[] {
@@ -1666,89 +1400,29 @@ function TurnOrderPanel({
   combatFrame,
   avgPartyLevel,
   heroes,
-  firestoreTurnQueue,
 }: {
   combatFrame: CombatFrame | null;
   avgPartyLevel: number;
   heroes: HeroSnapshot[];
-  firestoreTurnQueue?: Array<{ ordinal: number; side: number; slot: number | null; mapped: { side: string; slot: number | null }; ticks: number | null; totalTicks: number | null }> | null;
 }) {
-  const extensionRows = combatFrame?.turnOrder || [];
-  const firestoreRows: TurnOrderEntry[] = (firestoreTurnQueue || []).map((entry) => ({
-    unitId: `${entry.mapped.side}:${entry.mapped.slot ?? 'na'}:firestore_${entry.ordinal}`,
-    name: entry.mapped.side === 'player'
-      ? `Hero ${entry.mapped.slot != null ? entry.mapped.slot + 1 : entry.ordinal + 1}`
-      : `Enemy ${entry.mapped.slot != null ? entry.mapped.slot + 1 : entry.ordinal + 1}`,
-    side: entry.mapped.side as 'player' | 'enemy',
-    slot: entry.mapped.slot,
-    ticksUntilTurn: entry.ticks,
-    totalTicks: entry.totalTicks,
-    ordinal: entry.ordinal,
-    heroId: null,
-    heroClass: null,
-    level: null,
-    iconUrl: null,
-    source: 'firestore_poller',
-  }));
-  const usingFirestoreFallback = firestoreTurnQueue != null && firestoreRows.length > 0;
-  const rows = usingFirestoreFallback ? firestoreRows : extensionRows;
-  const diagnostics = combatFrame?.turnOrderDiagnostics || null;
-  const selectedSourceLabel = diagnostics ? formatTurnOrderSourceLabel(diagnostics.selectedKind) : null;
-  const deltaSummary = diagnostics?.deltaSummary || null;
+  const rows = combatFrame?.turnOrder || [];
+  let playerRowIndex = 0;
   return (
     <Card className="h-full">
       <CardContent className="p-4 h-full flex flex-col">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Turn Order</p>
-          {diagnostics && (
-            <div className="flex items-center gap-1.5">
-              <Badge variant="outline" className="text-[9px] font-mono">
-                {selectedSourceLabel}
-              </Badge>
-              <Badge variant="secondary" className="text-[9px] font-mono">
-                {formatTurnOrderConfidence(diagnostics.selectedConfidence)}
-              </Badge>
-            </div>
-          )}
-        </div>
-        {diagnostics && (
-          <div className="grid gap-2 md:grid-cols-2 mb-3">
-            <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2 text-[10px]">
-              <p className="font-semibold uppercase tracking-wide text-muted-foreground">Selected Source</p>
-              <p className="font-mono break-all">{diagnostics.selectedSource || 'none'}</p>
-            </div>
-            <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2 text-[10px]">
-              <p className="font-semibold uppercase tracking-wide text-muted-foreground">Delta Summary</p>
-              {deltaSummary ? (
-                <p className="font-mono">
-                  {deltaSummary.orderChanged ? 'order changed' : 'order stable'}
-                  {' · '}
-                  +{deltaSummary.addedCount} / -{deltaSummary.removedCount} / ~{deltaSummary.changedCount}
-                </p>
-              ) : (
-                <p className="font-mono text-muted-foreground">No delta captured</p>
-              )}
-            </div>
-          </div>
-        )}
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Turn Order</p>
         <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
-          {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">{firestoreTurnQueue !== null ? 'Firestore fallback active — waiting for turn data...' : 'Turn-order modal has not been captured yet.'}</p>}
-          {usingFirestoreFallback && (
-            <div className="mb-2 text-[10px] font-mono text-amber-400/80 text-center">Firestore fallback (no extension snapshot)</div>
-          )}
+          {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
           {rows.map((row) => {
             const combatant = combatFrame?.combatants.find((unit) => unit.unitId === row.unitId) || null;
-            const needsHeroFallback =
-              row.side === 'player' &&
-              (!row.name || /^hero\s+\d+/i.test(row.name) || !row.heroId);
-            const fallbackHero = needsHeroFallback && heroes.length > 0
-              ? heroes.find((hero) => hero.slot === row.slot) || null
+            const fallbackHero = row.side === 'player' && heroes.length > 0
+              ? heroes[(playerRowIndex++) % heroes.length]
               : null;
-            const displayName = combatant?.name || row.name || fallbackHero?.name || 'Unknown';
+            const displayName = fallbackHero?.name || combatant?.name || row.name;
             const displayHeroClass = row.heroClass || combatant?.heroClass || fallbackHero?.mainClass || null;
             const displayHeroId = row.heroId || combatant?.heroId || fallbackHero?.heroId || null;
             const displayIconUrl = row.iconUrl || combatant?.iconUrl || fallbackHero?.iconUrl || null;
-            const displayLevel = row.level ?? combatant?.heroDetail?.level ?? fallbackHero?.level ?? null;
+            const displayLevel = row.level ?? fallbackHero?.level ?? combatant?.heroDetail?.level ?? null;
             const calculated = computeCalculatedCombatSnapshot(
               combatant?.heroDetail?.baseStats || combatant?.stats || null,
               avgPartyLevel,
@@ -1770,7 +1444,6 @@ function TurnOrderPanel({
                       name: displayName,
                       heroClass: displayHeroClass,
                       level: displayLevel,
-                      ticksUntilTurn: row.ticksUntilTurn,
                     })}
                   </span>
                   {calculated && (
@@ -1780,214 +1453,10 @@ function TurnOrderPanel({
                   )}
                 </div>
               </div>
+              <span className="font-mono">{row.ticksUntilTurn != null ? row.ticksUntilTurn : 'order only'}</span>
             </div>
           )})}
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function TurnOrderDiagnosticsPanel({
-  combatFrame,
-}: {
-  combatFrame: CombatFrame | null;
-}) {
-  const diagnostics = combatFrame?.turnOrderDiagnostics || null;
-  const history = combatFrame?.turnOrderHistory || [];
-  const currentDelta = combatFrame?.turnOrderDelta || null;
-  const candidates = diagnostics?.candidates || [];
-  const recentHistory = history.slice(-6);
-
-  return (
-    <Card className="h-full xl:col-span-2">
-      <CardContent className="p-4 h-full flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-            <Activity className="w-3.5 h-3.5" /> Turn Diagnostics
-          </p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant="outline" className="text-[9px] font-mono">
-              {diagnostics?.selectedKind ? formatTurnOrderSourceLabel(diagnostics.selectedKind) : 'No source'}
-            </Badge>
-            <Badge variant="secondary" className="text-[9px] font-mono">
-              {diagnostics ? formatTurnOrderConfidence(diagnostics.selectedConfidence) : '0%'}
-            </Badge>
-            <Badge variant="outline" className="text-[9px] font-mono">
-              {history.length} snapshot{history.length === 1 ? '' : 's'}
-            </Badge>
-          </div>
-        </div>
-
-        {!diagnostics ? (
-          <p className="text-xs text-muted-foreground text-center py-4">
-            Diagnostics have not been attached to the current frame yet.
-          </p>
-        ) : (
-          <>
-            <div className="grid gap-2 md:grid-cols-3 text-[10px]">
-              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2">
-                <p className="font-semibold uppercase tracking-wide text-muted-foreground">Selected Source</p>
-                <p className="font-mono break-all">{diagnostics.selectedSource || 'none'}</p>
-              </div>
-              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2">
-                <p className="font-semibold uppercase tracking-wide text-muted-foreground">Capture Mode</p>
-                <p className="font-mono">{diagnostics.liveCaptureMode.replace(/_/g, ' ')}</p>
-              </div>
-              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2">
-                <p className="font-semibold uppercase tracking-wide text-muted-foreground">Delta</p>
-                {diagnostics.deltaSummary ? (
-                  <p className="font-mono">
-                    {diagnostics.deltaSummary.orderChanged ? 'changed' : 'stable'}
-                    {' · '}
-                    +{diagnostics.deltaSummary.addedCount} / -{diagnostics.deltaSummary.removedCount} / ~{diagnostics.deltaSummary.changedCount}
-                  </p>
-                ) : (
-                  <p className="font-mono text-muted-foreground">No delta summary</p>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3 text-[10px]">
-              <p className="font-semibold uppercase tracking-wide text-muted-foreground mb-2">Ranking Reasons</p>
-              <div className="flex flex-wrap gap-1">
-                {diagnostics.rankingReasons.length === 0 ? (
-                  <span className="text-muted-foreground">No ranking reasons recorded.</span>
-                ) : diagnostics.rankingReasons.map((reason) => (
-                  <Badge key={reason} variant="secondary" className="text-[9px]">
-                    {reason}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid gap-3 xl:grid-cols-2">
-              {candidates.map((candidate) => {
-                const selected = candidate.kind === diagnostics.selectedKind;
-                return (
-                  <div
-                    key={`${candidate.kind}-${candidate.source || 'none'}-${candidate.transport || 'na'}`}
-                    className={cn(
-                      'rounded-lg border p-3 text-[10px] space-y-2',
-                      selected ? 'border-blue-500/60 bg-blue-500/5' : 'border-muted-foreground/10 bg-muted/10',
-                    )}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="font-semibold uppercase tracking-wide text-muted-foreground">{formatTurnOrderSourceLabel(candidate.kind)}</p>
-                        <p className="font-mono break-all">{candidate.source || 'none'}</p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant="outline" className="text-[9px] font-mono">{formatTurnOrderConfidence(candidate.confidence)}</Badge>
-                        <Badge variant="secondary" className="text-[9px] font-mono">{candidate.count} row{candidate.count === 1 ? '' : 's'}</Badge>
-                        <Badge variant="outline" className="text-[9px] font-mono">{candidate.fresh ? 'fresh' : 'stale'}</Badge>
-                      </div>
-                    </div>
-                    <p className="text-muted-foreground">{candidate.reason || 'No reason captured.'}</p>
-                    <p className="font-mono text-muted-foreground">
-                      age {formatTurnOrderAge(candidate.ageMs)}
-                      {candidate.transport ? ` · ${candidate.transport}` : ''}
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {candidate.matchedFields.map((field) => (
-                        <Badge key={`${candidate.kind}-match-${field}`} variant="secondary" className="text-[9px]">
-                          +{field}
-                        </Badge>
-                      ))}
-                      {candidate.rejectedFields.map((field) => (
-                        <Badge key={`${candidate.kind}-reject-${field}`} variant="outline" className="text-[9px]">
-                          -{field}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="space-y-1">
-                      {candidate.entries.length === 0 ? (
-                        <p className="text-muted-foreground">No rows captured.</p>
-                      ) : candidate.entries.slice(0, 4).map((entry) => (
-                        <div key={`${candidate.kind}-${entry.unitId}-${entry.ordinal}`} className="flex items-center gap-2 rounded bg-background/70 px-2 py-1">
-                          <span className="truncate">
-                            {formatCombatantTurnLabel({
-                              name: entry.name,
-                              heroClass: entry.heroClass || null,
-                              level: entry.level ?? null,
-                              ticksUntilTurn: entry.ticksUntilTurn ?? null,
-                            })}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Timeline</p>
-                {currentDelta && (
-                  <Badge variant="outline" className="text-[9px] font-mono">
-                    {currentDelta.orderChanged ? 'order changed' : 'order stable'}
-                    {' · '}
-                    +{currentDelta.added.length} / -{currentDelta.removed.length} / ~{currentDelta.changed.length}
-                  </Badge>
-                )}
-              </div>
-              {recentHistory.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">No turn-order history captured yet.</p>
-              ) : (
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {recentHistory.map((snapshot, index) => {
-                    const previous = index > 0 ? recentHistory[index - 1] : null;
-                    const comparison = previous ? compareTurnOrderSequences(previous.entries, snapshot.entries) : null;
-                    return (
-                      <div key={snapshot.snapshotId} className="rounded-md border border-muted-foreground/10 bg-background/70 p-2 text-[10px] space-y-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <p className="font-semibold">{snapshot.snapshotId}</p>
-                            <p className="text-muted-foreground">
-                              turn {snapshot.turnNumber ?? 'n/a'} · {formatTurnOrderSourceLabel(getTurnOrderSourceKindFromValue(snapshot.source))} · {new Date(snapshot.capturedAt).toLocaleTimeString()}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1">
-                            <Badge variant="outline" className="text-[9px] font-mono">
-                              {snapshot.entries.length} row{snapshot.entries.length === 1 ? '' : 's'}
-                            </Badge>
-                            {comparison && (
-                              <Badge variant={comparison.orderChanged ? 'secondary' : 'outline'} className="text-[9px] font-mono">
-                                {comparison.orderChanged ? 'changed' : 'stable'}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        <p className="font-mono text-muted-foreground break-words">
-                          {formatTurnOrderSequence(snapshot.entries)}
-                        </p>
-                        {comparison && (
-                          <div className="flex flex-wrap gap-1">
-                            {comparison.added.length > 0 && (
-                              <Badge variant="secondary" className="text-[9px]">+{comparison.added.length}</Badge>
-                            )}
-                            {comparison.removed.length > 0 && (
-                              <Badge variant="outline" className="text-[9px]">-{comparison.removed.length}</Badge>
-                            )}
-                            {comparison.changed.length > 0 && (
-                              <Badge variant="outline" className="text-[9px]">~{comparison.changed.length}</Badge>
-                            )}
-                            {comparison.changed.slice(0, 2).map((change) => (
-                              <span key={`${snapshot.snapshotId}-${change.unitId}`} className="text-muted-foreground">
-                                {formatCombatName(change.name)} {formatTurnOrderTickValue(change.beforeTicksUntilTurn)} → {formatTurnOrderTickValue(change.afterTicksUntilTurn)}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </>
-        )}
       </CardContent>
     </Card>
   );
@@ -2018,8 +1487,8 @@ function ReconciliationPanel({ combatFrame, firebaseData }: { combatFrame: Comba
             {mismatches.map((mismatch) => (
               <div key={mismatch.name} className="rounded bg-amber-500/10 p-2 text-[11px]">
                 <div className="font-medium">{mismatch.name}</div>
-                <div className="text-muted-foreground">HP frame/firebase: {mismatch.hp[0] ?? 'n/a'} / {mismatch.hp[1] ?? 'n/a'}</div>
-                <div className="text-muted-foreground">MP frame/firebase: {mismatch.mp[0] ?? 'n/a'} / {mismatch.mp[1] ?? 'n/a'}</div>
+                <div className="text-muted-foreground">HP extension/firebase: {mismatch.hp[0] ?? 'n/a'} / {mismatch.hp[1] ?? 'n/a'}</div>
+                <div className="text-muted-foreground">MP extension/firebase: {mismatch.mp[0] ?? 'n/a'} / {mismatch.mp[1] ?? 'n/a'}</div>
               </div>
             ))}
           </div>
@@ -2457,8 +1926,6 @@ export default function HuntCompanion() {
   const [turnCount, setTurnCount] = useState(0);
   const [inspectedCombatantId, setInspectedCombatantId] = useState<string | null>(null);
   const [pendingManualActionKey, setPendingManualActionKey] = useState<string | null>(null);
-  const [firestoreSessionId, setFirestoreSessionId] = useState<string | null>(null);
-  const [lastExtensionSnapshotAt, setLastExtensionSnapshotAt] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const turnFeedRef = useRef<HTMLDivElement>(null);
 
@@ -2511,40 +1978,6 @@ export default function HuntCompanion() {
     queryFn: async () => {
       const resp = await fetch(`/api/user/pve/companion/sessions/${selectedSessionId}`);
       if (!resp.ok) throw new Error('Failed');
-      return resp.json();
-    },
-  });
-
-  const [firestoreFallbackEnabled, setFirestoreFallbackEnabled] = useState(false);
-
-  useEffect(() => {
-    const check = () => {
-      const shouldEnable = !!firestoreSessionId && (lastExtensionSnapshotAt === null || (Date.now() - lastExtensionSnapshotAt) > 5000);
-      setFirestoreFallbackEnabled(shouldEnable);
-    };
-    check();
-    const timer = setInterval(check, 1000);
-    return () => clearInterval(timer);
-  }, [firestoreSessionId, lastExtensionSnapshotAt]);
-
-  const firestoreTurnStateQuery = useQuery<{
-    ok: boolean;
-    sessionId: string;
-    turnCount: number | null;
-    roundCount: number | null;
-    totalTicks: number | null;
-    hasWinner: boolean | null;
-    winnerSide: number | null;
-    scenarioId: string | null;
-    nextPlayTurn: { side: number; slot: number | null; mapped: { side: string; slot: number | null } } | null;
-    turnQueue: Array<{ ordinal: number; side: number; slot: number | null; mapped: { side: string; slot: number | null }; ticks: number | null; totalTicks: number | null }>;
-  }>({
-    queryKey: ['/api/pve/firestore-turn-state', firestoreSessionId],
-    enabled: firestoreFallbackEnabled,
-    refetchInterval: firestoreFallbackEnabled ? 3000 : false,
-    queryFn: async () => {
-      const resp = await fetch(`/api/pve/firestore-turn-state/${encodeURIComponent(firestoreSessionId!)}`);
-      if (!resp.ok) throw new Error('Firestore turn state fetch failed');
       return resp.json();
     },
   });
@@ -2671,16 +2104,10 @@ export default function HuntCompanion() {
               };
             });
           }
-          if (msg.combatFrame) {
-            setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
-            setLastExtensionSnapshotAt(Date.now());
-          }
+          if (msg.combatFrame) setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
         } else if (msg.type === 'turn_state') {
           if (msg.battleState && !firebaseLogQuery.data) setBattleState(msg.battleState);
-          if (msg.combatFrame) {
-            setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
-            setLastExtensionSnapshotAt(Date.now());
-          }
+          if (msg.combatFrame) setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
         } else if (msg.type === 'turn_update') {
           if (!firebaseLogQuery.data) {
             setTurnFeed(prev => [...prev.slice(-9), { turnNumber: msg.turnNumber, actorSide: msg.actorSide, actorSlot: msg.actorSlot, skillId: msg.skillId, actor: msg.actor || null, ability: msg.ability || null, effects: msg.effects }]);
@@ -2785,8 +2212,6 @@ export default function HuntCompanion() {
     setTurnCount(0);
     setShowBattleLog(false);
     setPendingManualActionKey(null);
-    setLastExtensionSnapshotAt(null);
-    setFirestoreSessionId(null);
   }, [selectedSessionId]);
 
   useEffect(() => {
@@ -2831,7 +2256,6 @@ export default function HuntCompanion() {
 
     if (data.latestHuntId) {
       setLatestHuntId((prev) => (prev === data.latestHuntId ? prev : data.latestHuntId));
-      setFirestoreSessionId((prev) => (prev === data.latestHuntId ? prev : data.latestHuntId));
     }
 
     if (data.heroStates && !firebaseLogQuery.data) {
@@ -2945,7 +2369,6 @@ export default function HuntCompanion() {
     }
   };
 
-  const currentSession = normalizeCompanionSession(session);
   const hasLiveData = battleState !== null;
 
   return (
@@ -2974,7 +2397,7 @@ export default function HuntCompanion() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Owned Sessions</p>
               <p className="text-sm text-muted-foreground">
-                Refreshing the page restores the selected session.
+                Refreshing the page restores the selected session instead of minting a new token.
               </p>
             </div>
             <Button
@@ -3004,77 +2427,71 @@ export default function HuntCompanion() {
 
           {Array.isArray(sessionListQuery.data?.sessions) && sessionListQuery.data.sessions.length > 0 && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-              {sessionListQuery.data.sessions.map((candidate: SessionData) => {
-                const view = normalizeCompanionSession(candidate);
-                if (!view) return null;
-                return (
+              {sessionListQuery.data.sessions.map((candidate: SessionData) => (
                 <div
-                  key={view.id}
-                  className={`rounded-lg border p-3 space-y-2 ${view.id === session?.id ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}
+                  key={candidate.id}
+                  className={`rounded-lg border p-3 space-y-2 ${candidate.id === session?.id ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-medium truncate">{view.label || view.hunt_id || `Session #${view.id}`}</p>
+                      <p className="font-medium truncate">{candidate.label || candidate.hunt_id || `Session #${candidate.id}`}</p>
                       <p className="text-xs text-muted-foreground font-mono truncate">
-                        {view.session_token}
+                        {candidate.session_token}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1">
-                      <Badge variant={view.id === session?.id ? 'default' : 'secondary'} className="text-[10px]">
-                        {view.id === session?.id ? 'Open' : view.status}
+                      <Badge variant={candidate.id === session?.id ? 'default' : 'secondary'} className="text-[10px]">
+                        {candidate.id === session?.id ? 'Open' : candidate.status}
                       </Badge>
-                      {view.needsRefresh && (
+                      {candidate.requires_tab_refresh && (
                         <Badge variant="outline" className="text-[10px] text-amber-300 border-amber-500/40">
-                          Needs refresh
+                          Refresh Tab
                         </Badge>
                       )}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                    <div>Hunt: {view.hunt_id || view.latest_hunt_id || '--'}</div>
-                    <div>Clients: {view.connected_clients ?? 0}</div>
-                    <div>Seen: {formatSessionDate(view.last_seen_at)}</div>
-                    <div>Selected: {formatSessionDate(view.selectedAt)}</div>
-                    <div>Refresh requested: {formatSessionDate(view.refreshRequestedAt)}</div>
-                    <div>Status: {view.status}</div>
+                    <div>Hunt: {candidate.hunt_id || candidate.latest_hunt_id || '--'}</div>
+                    <div>Clients: {candidate.connected_clients ?? 0}</div>
+                    <div>Seen: {candidate.last_seen_at ? new Date(candidate.last_seen_at).toLocaleString() : 'n/a'}</div>
+                    <div>Status: {candidate.status}</div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
-                      variant={view.id === session?.id ? 'secondary' : 'outline'}
-                      onClick={() => setSelectedSessionId(view.id)}
-                      data-testid={`button-open-session-${view.id}`}
+                      variant={candidate.id === session?.id ? 'secondary' : 'outline'}
+                      onClick={() => setSelectedSessionId(candidate.id)}
+                      data-testid={`button-open-session-${candidate.id}`}
                     >
-                      {view.id === session?.id ? 'Selected' : 'Open'}
+                      {candidate.id === session?.id ? 'Selected' : 'Open'}
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => {
-                        navigator.clipboard.writeText(view.session_token);
+                        navigator.clipboard.writeText(candidate.session_token);
                         setCopied(true);
                         setTimeout(() => setCopied(false), 2000);
                       }}
-                      data-testid={`button-copy-session-token-${view.id}`}
+                      data-testid={`button-copy-session-token-${candidate.id}`}
                     >
-                      {copied && view.id === session?.id ? <Check className="w-3.5 h-3.5 mr-1 text-green-500" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                      {copied && candidate.id === session?.id ? <Check className="w-3.5 h-3.5 mr-1 text-green-500" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
                       Copy Token
                     </Button>
-                    {!view.archived_at && (
+                    {!candidate.archived_at && (
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => archiveSessionMutation.mutate(view.id)}
+                        onClick={() => archiveSessionMutation.mutate(candidate.id)}
                         disabled={archiveSessionMutation.isPending}
-                        data-testid={`button-archive-session-${view.id}`}
+                        data-testid={`button-archive-session-${candidate.id}`}
                       >
                         Archive
                       </Button>
                     )}
                   </div>
                 </div>
-                );
-              })}
+              ))}
             </div>
           )}
         </CardContent>
@@ -3113,22 +2530,12 @@ export default function HuntCompanion() {
                     {wsConnected ? (
                       <><Wifi className="w-4 h-4 text-green-500" /> Connected — Waiting for battle data</>
                     ) : (
-                      <><WifiOff className="w-4 h-4 text-muted-foreground" /> Firebase sync pending</>
+                      <><WifiOff className="w-4 h-4 text-muted-foreground" /> Pairing</>
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground mb-4">
-                    The companion loads hunt data directly from Firebase now. Use the extension only for live capture or manual token handoff.
+                    The extension can now log into your account and attach this owned session automatically. The token remains available as a fallback/debug pairing path.
                   </p>
-                  {firebaseLogQuery.isError && (
-                    <p className="text-xs text-red-400 mb-4">
-                      Firebase hunt log fetch failed: {firebaseLogQuery.error instanceof Error ? firebaseLogQuery.error.message : 'Unknown error'}
-                    </p>
-                  )}
-                  {!firebaseLogQuery.isError && firebaseLogQuery.data && !battleState && (
-                    <p className="text-xs text-amber-400 mb-4">
-                      Firebase hunt log loaded, but no combatant snapshot was resolved yet.
-                    </p>
-                  )}
 
                   <div className="flex items-center gap-2 mb-4">
                     <code className="flex-1 px-3 py-2 rounded-md bg-muted font-mono text-sm select-all" data-testid="text-session-token">
@@ -3140,10 +2547,10 @@ export default function HuntCompanion() {
                   </div>
 
                   <div className="space-y-1 text-xs text-muted-foreground">
-                    <p>1. Optional: install the DFK Hunt Companion Chrome Extension only if you want live capture</p>
-                    <p>2. If you want live capture, log in and select this session, or paste the token manually</p>
-                    <p>3. Enter a PVE Hunt battle in DeFi Kingdoms</p>
-                    <p>4. Refresh the hunt tab only if you are reattaching live capture</p>
+                    <p>1. Install the DFK Hunt Companion Chrome Extension</p>
+                    <p>2. Log into the extension and select this session, or paste the token manually</p>
+                    <p>3. Refresh the DFK hunt tab if the extension was just reloaded</p>
+                    <p>4. Enter a PVE Hunt battle in DeFi Kingdoms</p>
                   </div>
                 </div>
 
@@ -3157,10 +2564,8 @@ export default function HuntCompanion() {
                         </Badge>
                       </div>
                       <p className="font-mono text-muted-foreground/60">ID: {session.id}</p>
-                      {currentSession?.selectedAt && <p>Selected: {formatSessionDate(currentSession.selectedAt)}</p>}
-                      {currentSession?.refreshRequestedAt && <p>Refresh requested: {formatSessionDate(currentSession.refreshRequestedAt)}</p>}
                       {session.hunt_id && <p>Hunt: {session.hunt_id}</p>}
-                      {currentSession?.needsRefresh && <p className="text-amber-300">Live capture needs a refresh to reattach.</p>}
+                      {session.requires_tab_refresh && <p className="text-amber-300">Refresh the DFK hunt tab to reattach capture.</p>}
                     {session.wallet_address && <p className="font-mono">Wallet: {session.wallet_address.slice(0, 6)}...{session.wallet_address.slice(-4)}</p>}
                   </div>
                 </div>
@@ -3187,16 +2592,9 @@ export default function HuntCompanion() {
                 <CardContent className="p-4 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Firebase Battle State</p>
-                    <div className="flex items-center gap-2">
-                      {firebaseLogQuery.data.deckStateSource && (
-                        <Badge variant="outline" className="text-[10px] font-mono">
-                          {firebaseLogQuery.data.deckStateSource}
-                        </Badge>
-                      )}
-                      <Badge variant={firebaseLogQuery.data.meta?.hasWinner ? 'secondary' : 'default'} className="text-[10px]">
-                        {firebaseLogQuery.data.meta?.hasWinner ? 'Finished' : 'Live'}
-                      </Badge>
-                    </div>
+                    <Badge variant={firebaseLogQuery.data.meta?.hasWinner ? 'secondary' : 'default'} className="text-[10px]">
+                      {firebaseLogQuery.data.meta?.hasWinner ? 'Finished' : 'Live'}
+                    </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
                     <div>Hunt: <span className="font-mono">{firebaseLogQuery.data.huntRef}</span></div>
@@ -3399,8 +2797,7 @@ export default function HuntCompanion() {
                   onAction={executeMirroredAction}
                   pendingActionKey={pendingManualActionKey}
                 />
-                <TurnOrderPanel combatFrame={combatFrame} avgPartyLevel={avgPartyLevel} heroes={battleState.heroes} firestoreTurnQueue={firestoreFallbackEnabled && firestoreTurnStateQuery.data?.turnQueue ? firestoreTurnStateQuery.data.turnQueue : null} />
-                <TurnOrderDiagnosticsPanel combatFrame={combatFrame} />
+                <TurnOrderPanel combatFrame={combatFrame} avgPartyLevel={avgPartyLevel} heroes={battleState.heroes} />
               </div>
 
             {syncIssues.length > 0 && (

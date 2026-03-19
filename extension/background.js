@@ -183,103 +183,8 @@ function summarizeCombatFrame(frame) {
     combatantCount: Array.isArray(frame.combatants) ? frame.combatants.length : 0,
     turnOrderCount: Array.isArray(frame.turnOrder) ? frame.turnOrder.length : 0,
     battleLogCount: Array.isArray(frame.battleLogEntries) ? frame.battleLogEntries.length : 0,
-    turnOrderDiagnostics: summarizeTurnOrderDiagnostics(frame.turnOrderDiagnostics || null),
-    predictionInputs: redactObject(frame.predictionInputs || null),
     captureMeta: redactObject(frame.captureMeta || {}),
   };
-}
-
-function summarizeTurnOrderRow(row) {
-  if (!row) return null;
-  return redactObject({
-    unitId: row.unitId || null,
-    name: row.name || null,
-    side: row.side || null,
-    slot: row.slot ?? null,
-    ticksUntilTurn: row.ticksUntilTurn ?? null,
-    totalTicks: row.totalTicks ?? null,
-    heroId: row.heroId || null,
-    heroClass: row.heroClass || null,
-    level: row.level ?? null,
-    source: row.source || null,
-  });
-}
-
-function summarizeTurnOrderDiagnostics(diagnostics) {
-  if (!diagnostics) return null;
-  return redactObject({
-    snapshotId: diagnostics.snapshotId || null,
-    signature: diagnostics.signature || null,
-    turnNumber: diagnostics.turnNumber ?? null,
-    selectedSource: diagnostics.selectedSource || null,
-    selectedKind: diagnostics.selectedKind || null,
-    selectedConfidence: diagnostics.selectedConfidence ?? null,
-    selectedReason: diagnostics.selectedReason || null,
-    candidateCount: Array.isArray(diagnostics.candidates) ? diagnostics.candidates.length : 0,
-    historyCount: diagnostics.historyCount ?? null,
-    deltaSummary: diagnostics.deltaSummary || null,
-    fieldMatches: Array.isArray(diagnostics.fieldMatches) ? diagnostics.fieldMatches : [],
-    fieldRejections: Array.isArray(diagnostics.fieldRejections) ? diagnostics.fieldRejections : [],
-    liveCaptureMode: diagnostics.liveCaptureMode || null,
-  });
-}
-
-function summarizeRuntimeCombatantSample(snapshot) {
-  if (!snapshot?.runtimeCombatant) return null;
-  return redactObject({
-    unitName: snapshot.unitName || null,
-    unitSide: snapshot.unitSide || null,
-    baseCombatant: snapshot.runtimeCombatant.baseCombatant || null,
-    currentLocation: snapshot.runtimeCombatant.currentLocation || null,
-    attackConfigs: Array.isArray(snapshot.runtimeCombatant.attackConfigs)
-      ? snapshot.runtimeCombatant.attackConfigs.slice(0, 8)
-      : [],
-    comboTrackers: Array.isArray(snapshot.runtimeCombatant.comboTrackers)
-      ? snapshot.runtimeCombatant.comboTrackers.slice(0, 6)
-      : [],
-    durationTracker: snapshot.runtimeCombatant.durationTracker || null,
-    passiveTrackers: Array.isArray(snapshot.runtimeCombatant.passiveTrackers)
-      ? snapshot.runtimeCombatant.passiveTrackers.slice(0, 8)
-      : [],
-  });
-}
-
-function summarizeStatus(status) {
-  if (!status) return null;
-  return redactObject({
-    id: status.id || null,
-    name: status.name || null,
-    category: status.category || null,
-    stacks: status.stacks ?? null,
-    durationTurns: status.durationTurns ?? null,
-    iconUrl: status.iconUrl || null,
-    sourceText: status.sourceText || null,
-    tooltipTitle: status.tooltipTitle || null,
-    tooltipSubtitle: status.tooltipSubtitle || null,
-    tooltipBullets: Array.isArray(status.tooltipBullets) ? status.tooltipBullets : [],
-    tooltipNote: status.tooltipNote || null,
-    dispellable: typeof status.dispellable === 'boolean' ? status.dispellable : null,
-    amnesiaAbilityName: status.amnesiaAbilityName || null,
-    amnesiaTurns: status.amnesiaTurns ?? null,
-  });
-}
-
-function summarizeEffectSamples(frame) {
-  if (!frame || !Array.isArray(frame.combatants)) return [];
-  const samples = [];
-  for (const combatant of frame.combatants) {
-    const effects = Array.isArray(combatant.visibleEffects) ? combatant.visibleEffects : [];
-    for (const effect of effects) {
-      samples.push({
-        unitId: combatant.unitId || null,
-        combatantName: combatant.name || null,
-        side: combatant.side || null,
-        effect: summarizeStatus(effect),
-      });
-      if (samples.length >= 12) return samples;
-    }
-  }
-  return samples;
 }
 
 function summarizeRecommendation(rec) {
@@ -342,26 +247,6 @@ function buildSupportBundle() {
       latestUnitSnapshot: redactObject(lastUnitSnapshot),
       latestReconcileResult: redactObject(lastReconcileResult),
       latestCombatFrame: summarizeCombatFrame(latestSnapshot?.combatFrame || null),
-      latestRuntimeTurnOrderSample: Array.isArray(latestSnapshot?.combatFrame?.turnOrder)
-        ? latestSnapshot.combatFrame.turnOrder
-            .filter((row) => String(row?.source || '').includes('runtime'))
-            .slice(0, 8)
-            .map(summarizeTurnOrderRow)
-        : [],
-      latestRuntimeBattleDataSample: redactObject(
-        latestSnapshot?._debug?.runtimeBattleDataSample ||
-        latestSnapshot?.combatFrame?.captureMeta?.runtimeBattleData ||
-        latestSnapshot?.combatFrame?.predictionInputs ||
-        null,
-      ),
-      latestRuntimeCombatantSample: summarizeRuntimeCombatantSample(lastUnitSnapshot),
-      runtimeTurnOrderMetrics: redactObject(latestSnapshot?._debug?.turnOrder?.runtimeMetrics || null),
-      runtimeCombatantMetrics: redactObject(lastUnitSnapshot?._debug?.runtimeCombatantMetrics || null),
-      runtimeCacheHitCount: latestSnapshot?._debug?.turnOrder?.runtimeCacheHitCount ?? null,
-      runtimeDeepFindCount: latestSnapshot?._debug?.turnOrder?.runtimeDeepFindCount ?? null,
-      lastRuntimeInvalidationReason: latestSnapshot?._debug?.turnOrder?.lastRuntimeInvalidationReason || null,
-      playerTurnRefreshTriggered: latestSnapshot?._debug?.turnOrder?.playerTurnRefreshTriggered || null,
-      latestEffectSamples: summarizeEffectSamples(latestSnapshot?.combatFrame || null),
       latestSnapshotDebug: redactObject(latestSnapshot?._debug || null),
       recentSnapshots: localSnapshots.slice(-20).map(summarizeSnapshot),
       heroProfileSummary: Array.isArray(currentHeroProfiles) ? currentHeroProfiles.map((hero) => ({
@@ -418,10 +303,8 @@ function persistExtensionState() {
 }
 
 function broadcastExtensionState() {
-  broadcastToContentScripts({
+  broadcast({
     type: 'extension_state_update',
-    status: connectionStatus,
-    isJoined,
     authUser: extensionUser,
     ownedCompanionSessions,
     selectedCompanionSessionId,
