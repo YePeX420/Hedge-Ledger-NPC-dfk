@@ -916,6 +916,149 @@
     } catch (_) {}
   }
 
+  // ── Firestore REST Poller ─────────────────────────────────────────────────
+
+  let firestorePollerTimer = null;
+  let firestorePollerSessionId = null;
+  let firestorePollerLastTotalTicks = null;
+  const FIRESTORE_POLL_INTERVAL_MS = 2000;
+  const FIRESTORE_BATTLES_BASE = 'https://firestore.googleapis.com/v1/projects/dfk-user-api/databases/combat-engine/documents/battles/';
+
+  function extractSessionIdFromUrl(url) {
+    const match = String(url || '').match(/\/combat\/hunt\/([^/?#]+)/i);
+    return match ? match[1] : null;
+  }
+
+  const FIRESTORE_HERO_SLOT_REMAP = { 0: 0, 1: 1, 2: 2 };
+
+  function mapFirestoreSideSlot(rawSide, rawSlot) {
+    const side = Number(rawSide);
+    const rawSlotNum = Number.isFinite(Number(rawSlot)) ? Number(rawSlot) : null;
+    if (side === -1) {
+      const mappedSlot = rawSlotNum != null ? rawSlotNum + 3 : null;
+      return { side: 'enemy', slot: mappedSlot };
+    }
+    const mappedSlot = rawSlotNum != null ? (FIRESTORE_HERO_SLOT_REMAP[rawSlotNum] ?? rawSlotNum) : null;
+    return { side: 'player', slot: mappedSlot };
+  }
+
+  function decodeFirestoreValue(field) {
+    if (!field) return null;
+    if (field.integerValue !== undefined) return parseInt(field.integerValue, 10);
+    if (field.doubleValue !== undefined) return Number(field.doubleValue);
+    if (field.stringValue !== undefined) return field.stringValue;
+    if (field.booleanValue !== undefined) return field.booleanValue;
+    if (field.nullValue !== undefined) return null;
+    if (field.arrayValue !== undefined) {
+      return (field.arrayValue.values || []).map(decodeFirestoreValue);
+    }
+    if (field.mapValue !== undefined) {
+      const result = {};
+      const fields = field.mapValue.fields || {};
+      for (const key of Object.keys(fields)) {
+        result[key] = decodeFirestoreValue(fields[key]);
+      }
+      return result;
+    }
+    return null;
+  }
+
+  function decodeFirestorePlayTurns(playTurnsField) {
+    if (!playTurnsField?.arrayValue?.values) return [];
+    return (playTurnsField.arrayValue.values || []).map((item, ordinal) => {
+      const decoded = decodeFirestoreValue(item);
+      if (!decoded) return null;
+      const rawSide = decoded.side ?? null;
+      const rawSlot = decoded.slot ?? null;
+      const ticks = decoded.ticks ?? null;
+      const totalTicks = decoded.totalTicks ?? null;
+      const { side, slot } = mapFirestoreSideSlot(rawSide, rawSlot);
+      const unitId = side === 'enemy'
+        ? `enemy:${slot == null ? 'na' : slot}:firestore_${ordinal}`
+        : `player:${slot == null ? 'na' : slot}:firestore_${ordinal}`;
+      return {
+        unitId,
+        name: side === 'player' ? `Hero ${slot != null ? slot + 1 : ordinal + 1}` : `Enemy ${slot != null ? slot + 1 : ordinal + 1}`,
+        side,
+        slot,
+        ticksUntilTurn: ticks != null ? Number(ticks) : null,
+        totalTicks: totalTicks != null ? Number(totalTicks) : null,
+        ordinal,
+        heroId: null,
+        heroClass: null,
+        level: null,
+        iconUrl: null,
+        source: 'firestore_poller',
+      };
+    }).filter(Boolean);
+  }
+
+  async function pollFirestoreBattle(sessionId) {
+    try {
+      const url = FIRESTORE_BATTLES_BASE + encodeURIComponent(sessionId);
+      const response = await fetch(url, { method: 'GET', credentials: 'omit', cache: 'no-store' });
+      if (!response.ok) return;
+      const json = await response.json();
+      const fields = json?.fields || {};
+      const totalTicksField = fields.totalTicks;
+      const currentTotalTicks = totalTicksField ? decodeFirestoreValue(totalTicksField) : null;
+      if (currentTotalTicks != null && currentTotalTicks === firestorePollerLastTotalTicks) return;
+      firestorePollerLastTotalTicks = currentTotalTicks;
+
+      const playTurns = decodeFirestorePlayTurns(fields.playTurns);
+      if (playTurns.length === 0) return;
+
+      const hasWinner = decodeFirestoreValue(fields.hasWinner);
+      if (hasWinner) {
+        stopFirestorePoller();
+      }
+
+      document.dispatchEvent(new CustomEvent('dfk-network-turn-order', {
+        detail: JSON.parse(JSON.stringify({
+          entries: playTurns,
+          capturedAt: Date.now(),
+          url: url,
+          transport: 'firestore_poller',
+        })),
+      }));
+    } catch (_) {}
+  }
+
+  function startFirestorePoller(sessionId) {
+    stopFirestorePoller();
+    firestorePollerSessionId = sessionId;
+    firestorePollerLastTotalTicks = null;
+    console.log('[DFK Firestore Poller] Starting for session:', sessionId);
+    pollFirestoreBattle(sessionId);
+    firestorePollerTimer = setInterval(() => {
+      pollFirestoreBattle(firestorePollerSessionId);
+    }, FIRESTORE_POLL_INTERVAL_MS);
+  }
+
+  function stopFirestorePoller() {
+    if (firestorePollerTimer != null) {
+      clearInterval(firestorePollerTimer);
+      firestorePollerTimer = null;
+    }
+    firestorePollerSessionId = null;
+    console.log('[DFK Firestore Poller] Stopped');
+  }
+
+  function maybeStartFirestorePoller() {
+    const url = window.location.href;
+    if (!/\/combat\/hunt\//i.test(url)) {
+      stopFirestorePoller();
+      return;
+    }
+    const sessionId = extractSessionIdFromUrl(url);
+    if (!sessionId) return;
+    if (sessionId === firestorePollerSessionId) return;
+    startFirestorePoller(sessionId);
+  }
+
+  window.addEventListener('popstate', maybeStartFirestorePoller);
+  window.addEventListener('hashchange', maybeStartFirestorePoller);
+
   // ── Init ──────────────────────────────────────────────────────────────────
 
   function init() {
@@ -956,6 +1099,9 @@
     installSpaHooks();
 
     setInterval(window.__dfkDetectSession, 3000);
+
+    maybeStartFirestorePoller();
+    setInterval(maybeStartFirestorePoller, 5000);
 
     initEngine();
   }

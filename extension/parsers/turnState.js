@@ -349,6 +349,8 @@
 
   function resolveTurnOrderSourceKind(source) {
     const value = String(source || '').toLowerCase();
+    if (value === 'timebar') return 'network';
+    if (value.startsWith('firestore')) return 'network';
     if (value.startsWith('runtime')) return 'runtime';
     if (value.startsWith('network')) return 'network';
     if (value.startsWith('modal')) return 'modal';
@@ -1795,17 +1797,11 @@
       const match = detail[matchIndex];
       return {
         ...baseEntry,
-        unitId: match.unitId || baseEntry.unitId,
         name: match.name || baseEntry.name,
-        side: match.side || baseEntry.side,
-        slot: match.slot != null ? match.slot : baseEntry.slot,
-        ticksUntilTurn: match.ticksUntilTurn != null ? match.ticksUntilTurn : baseEntry.ticksUntilTurn,
-        totalTicks: match.totalTicks != null ? match.totalTicks : (baseEntry.totalTicks ?? null),
         heroId: match.heroId || baseEntry.heroId || null,
         heroClass: match.heroClass || baseEntry.heroClass || null,
         level: match.level != null ? match.level : (baseEntry.level ?? null),
         iconUrl: match.iconUrl || baseEntry.iconUrl || null,
-        source: match.source || baseEntry.source || null,
       };
     });
 
@@ -1829,7 +1825,103 @@
     return entries;
   }
 
+  const HERO_SLOT_REMAP = { 0: 0, 1: 1, 2: 2 };
+
+  function getCombatTimebar(heroes, enemies) {
+    try {
+      const buttons = Array.from(document.querySelectorAll('[class*="turnIndicator"]'));
+      if (buttons.length === 0) return [];
+      const entries = [];
+      let playerOrdinal = 0;
+      let enemyOrdinal = 0;
+      buttons.forEach((btn, overallOrdinal) => {
+        const propsKey = Object.keys(btn).find((k) => k.startsWith('__reactProps$'));
+        if (!propsKey) return;
+        const props = btn[propsKey];
+        const indicatorTurn = props?.indicatorTurn || props?.turn || null;
+        if (!indicatorTurn) return;
+        const initTurn = indicatorTurn.initiativeTurn || indicatorTurn;
+        const rawTicks = initTurn?.ticks ?? initTurn?.ticksUntilTurn ?? null;
+        const rawTotalTicks = initTurn?.totalTicks ?? null;
+        const rawSide = initTurn?.side ?? indicatorTurn?.side ?? null;
+        const rawSlot = initTurn?.slot ?? indicatorTurn?.slot ?? null;
+        const ticksUntilTurn = rawTicks != null ? Number(rawTicks) : null;
+        const totalTicks = rawTotalTicks != null ? Number(rawTotalTicks) : null;
+        const sideValue = Number(rawSide);
+        const slotValue = Number.isFinite(Number(rawSlot)) ? Number(rawSlot) : null;
+        if (sideValue === -1) {
+          const mappedEnemySlot = slotValue != null ? slotValue + 3 : null;
+          const bySlot = (enemies || []).find((enemy) => Number(enemy.slot) === slotValue) || null;
+          const byOrdinal = (enemies || [])[enemyOrdinal] || null;
+          const fallbackName = slotValue === 0 ? 'Baby Boar 1'
+            : slotValue === 1 ? 'Baby Boar 2'
+            : slotValue === 2 ? 'Big Boar'
+            : `Enemy ${enemyOrdinal + 1}`;
+          const name = bySlot?.name || byOrdinal?.name || fallbackName;
+          entries.push({
+            unitId: `enemy:${mappedEnemySlot == null ? 'na' : mappedEnemySlot}:${normalizedName(name)}`,
+            name,
+            side: 'enemy',
+            slot: mappedEnemySlot,
+            ticksUntilTurn,
+            totalTicks,
+            ordinal: overallOrdinal,
+            heroId: null,
+            heroClass: null,
+            level: null,
+            iconUrl: bySlot?.iconUrl || byOrdinal?.iconUrl || findPortraitImage(name, 'enemy'),
+            source: 'timebar',
+          });
+          enemyOrdinal += 1;
+        } else {
+          const mappedSlot = slotValue != null ? (HERO_SLOT_REMAP[slotValue] ?? slotValue) : null;
+          const profiles = getOrderedHeroProfiles();
+          const profile = mappedSlot != null
+            ? profiles.find((candidate) => Number(candidate.slot) === mappedSlot)
+            : (profiles[playerOrdinal] || null);
+          const visibleHero = findHeroBySlot(heroes, mappedSlot) || ((heroes || [])[playerOrdinal] || null);
+          const heroId = String(profile?.heroId || profile?.id || '').trim() || null;
+          const name = normalizeText(visibleHero?.name || profile?.unitName || profile?.name || profile?.displayName || '');
+          const heroClass = profile?.mainClass || null;
+          const level = profile?.level != null ? Number(profile.level) : null;
+          entries.push({
+            unitId: `player:${mappedSlot == null ? 'na' : mappedSlot}:${normalizedName(name || heroId || `player_${playerOrdinal}`)}`,
+            name: name || `Hero ${playerOrdinal + 1}`,
+            side: 'player',
+            slot: mappedSlot,
+            ticksUntilTurn,
+            totalTicks,
+            ordinal: overallOrdinal,
+            heroId,
+            heroClass,
+            level,
+            iconUrl: findPortraitImage(name, 'player'),
+            source: 'timebar',
+          });
+          playerOrdinal += 1;
+        }
+      });
+      return entries.filter(Boolean);
+    } catch (_) {
+      return [];
+    }
+  }
+
   function readTurnOrder(heroes, enemies) {
+    const timebarEntries = getCombatTimebar(heroes, enemies);
+    if (timebarEntries.length > 0) {
+      const stripEntries = readTurnOrderStrip(heroes, enemies);
+      const merged = mergeTurnOrderEntries(timebarEntries, stripEntries);
+      const sorted = sortTurnOrderEntries(merged);
+      window.__dfkSelectorDiag.turn_order_source = 'timebar';
+      window.__dfkSelectorDiag.turn_order_timebar_count = timebarEntries.length;
+      window.__dfkSelectorDiag.turn_order_strip_count = stripEntries.length;
+      window.__dfkSelectorDiag.turn_order_runtime_count = 0;
+      window.__dfkSelectorDiag.turn_order_network_count = 0;
+      if (sorted.length > 0) markTurnOrderCapturedForHunt();
+      return sorted;
+    }
+
     const runtimeEntries = readTurnOrderRuntime(heroes, enemies);
     const runtimeWasReadThisCycle = runtimeEntries.length > 0;
     const cachedRuntimeEntries = runtimeWasReadThisCycle ? runtimeEntries : getFreshRuntimeTurnOrder();
@@ -1860,8 +1952,9 @@
     }
 
     if (networkIsFresh) {
-      window.__dfkSelectorDiag.turn_order_source = 'network_fresh';
-      window.__dfkSelectorDiag.turn_order_transport = latestNetworkTurnOrder.transport || null;
+      const networkTransport = latestNetworkTurnOrder.transport || null;
+      window.__dfkSelectorDiag.turn_order_source = (networkTransport && networkTransport.startsWith('firestore')) ? 'firestore_poller' : 'network_fresh';
+      window.__dfkSelectorDiag.turn_order_transport = networkTransport;
       window.__dfkSelectorDiag.turn_order_runtime_count = cachedRuntimeEntries.length;
       window.__dfkSelectorDiag.turn_order_runtime_age_ms = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
       window.__dfkSelectorDiag.runtime_turn_order_metrics = latestRuntimeTurnOrderMetrics || null;

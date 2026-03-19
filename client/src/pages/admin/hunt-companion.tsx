@@ -1620,12 +1620,32 @@ function TurnOrderPanel({
   combatFrame,
   avgPartyLevel,
   heroes,
+  firestoreTurnQueue,
 }: {
   combatFrame: CombatFrame | null;
   avgPartyLevel: number;
   heroes: HeroSnapshot[];
+  firestoreTurnQueue?: Array<{ ordinal: number; side: number; slot: number | null; mapped: { side: string; slot: number | null }; ticks: number | null; totalTicks: number | null }> | null;
 }) {
-  const rows = combatFrame?.turnOrder || [];
+  const extensionRows = combatFrame?.turnOrder || [];
+  const firestoreRows: TurnOrderEntry[] = (firestoreTurnQueue || []).map((entry) => ({
+    unitId: `${entry.mapped.side}:${entry.mapped.slot ?? 'na'}:firestore_${entry.ordinal}`,
+    name: entry.mapped.side === 'player'
+      ? `Hero ${entry.mapped.slot != null ? entry.mapped.slot + 1 : entry.ordinal + 1}`
+      : `Enemy ${entry.mapped.slot != null ? entry.mapped.slot + 1 : entry.ordinal + 1}`,
+    side: entry.mapped.side as 'player' | 'enemy',
+    slot: entry.mapped.slot,
+    ticksUntilTurn: entry.ticks,
+    totalTicks: entry.totalTicks,
+    ordinal: entry.ordinal,
+    heroId: null,
+    heroClass: null,
+    level: null,
+    iconUrl: null,
+    source: 'firestore_poller',
+  }));
+  const usingFirestoreFallback = firestoreTurnQueue != null && firestoreRows.length > 0;
+  const rows = usingFirestoreFallback ? firestoreRows : extensionRows;
   const diagnostics = combatFrame?.turnOrderDiagnostics || null;
   const selectedSourceLabel = diagnostics ? formatTurnOrderSourceLabel(diagnostics.selectedKind) : null;
   const deltaSummary = diagnostics?.deltaSummary || null;
@@ -1666,7 +1686,10 @@ function TurnOrderPanel({
           </div>
         )}
         <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
-          {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
+          {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">{firestoreTurnQueue !== null ? 'Firestore fallback active — waiting for turn data...' : 'Turn-order modal has not been captured yet.'}</p>}
+          {usingFirestoreFallback && (
+            <div className="mb-2 text-[10px] font-mono text-amber-400/80 text-center">Firestore fallback (no extension snapshot)</div>
+          )}
           {rows.map((row) => {
             const combatant = combatFrame?.combatants.find((unit) => unit.unitId === row.unitId) || null;
             const needsHeroFallback =
@@ -2390,6 +2413,8 @@ export default function HuntCompanion() {
   const [turnCount, setTurnCount] = useState(0);
   const [inspectedCombatantId, setInspectedCombatantId] = useState<string | null>(null);
   const [pendingManualActionKey, setPendingManualActionKey] = useState<string | null>(null);
+  const [firestoreSessionId, setFirestoreSessionId] = useState<string | null>(null);
+  const [lastExtensionSnapshotAt, setLastExtensionSnapshotAt] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const turnFeedRef = useRef<HTMLDivElement>(null);
 
@@ -2442,6 +2467,40 @@ export default function HuntCompanion() {
     queryFn: async () => {
       const resp = await fetch(`/api/user/pve/companion/sessions/${selectedSessionId}`);
       if (!resp.ok) throw new Error('Failed');
+      return resp.json();
+    },
+  });
+
+  const [firestoreFallbackEnabled, setFirestoreFallbackEnabled] = useState(false);
+
+  useEffect(() => {
+    const check = () => {
+      const shouldEnable = !!firestoreSessionId && (lastExtensionSnapshotAt === null || (Date.now() - lastExtensionSnapshotAt) > 5000);
+      setFirestoreFallbackEnabled(shouldEnable);
+    };
+    check();
+    const timer = setInterval(check, 1000);
+    return () => clearInterval(timer);
+  }, [firestoreSessionId, lastExtensionSnapshotAt]);
+
+  const firestoreTurnStateQuery = useQuery<{
+    ok: boolean;
+    sessionId: string;
+    turnCount: number | null;
+    roundCount: number | null;
+    totalTicks: number | null;
+    hasWinner: boolean | null;
+    winnerSide: number | null;
+    scenarioId: string | null;
+    nextPlayTurn: { side: number; slot: number | null; mapped: { side: string; slot: number | null } } | null;
+    turnQueue: Array<{ ordinal: number; side: number; slot: number | null; mapped: { side: string; slot: number | null }; ticks: number | null; totalTicks: number | null }>;
+  }>({
+    queryKey: ['/api/pve/firestore-turn-state', firestoreSessionId],
+    enabled: firestoreFallbackEnabled,
+    refetchInterval: firestoreFallbackEnabled ? 3000 : false,
+    queryFn: async () => {
+      const resp = await fetch(`/api/pve/firestore-turn-state/${encodeURIComponent(firestoreSessionId!)}`);
+      if (!resp.ok) throw new Error('Firestore turn state fetch failed');
       return resp.json();
     },
   });
@@ -2568,10 +2627,16 @@ export default function HuntCompanion() {
               };
             });
           }
-          if (msg.combatFrame) setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
+          if (msg.combatFrame) {
+            setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
+            setLastExtensionSnapshotAt(Date.now());
+          }
         } else if (msg.type === 'turn_state') {
           if (msg.battleState && !firebaseLogQuery.data) setBattleState(msg.battleState);
-          if (msg.combatFrame) setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
+          if (msg.combatFrame) {
+            setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
+            setLastExtensionSnapshotAt(Date.now());
+          }
         } else if (msg.type === 'turn_update') {
           if (!firebaseLogQuery.data) {
             setTurnFeed(prev => [...prev.slice(-9), { turnNumber: msg.turnNumber, actorSide: msg.actorSide, actorSlot: msg.actorSlot, skillId: msg.skillId, actor: msg.actor || null, ability: msg.ability || null, effects: msg.effects }]);
@@ -2676,6 +2741,8 @@ export default function HuntCompanion() {
     setTurnCount(0);
     setShowBattleLog(false);
     setPendingManualActionKey(null);
+    setLastExtensionSnapshotAt(null);
+    setFirestoreSessionId(null);
   }, [selectedSessionId]);
 
   useEffect(() => {
@@ -2720,6 +2787,7 @@ export default function HuntCompanion() {
 
     if (data.latestHuntId) {
       setLatestHuntId((prev) => (prev === data.latestHuntId ? prev : data.latestHuntId));
+      setFirestoreSessionId((prev) => (prev === data.latestHuntId ? prev : data.latestHuntId));
     }
 
     if (data.heroStates && !firebaseLogQuery.data) {
@@ -3261,7 +3329,7 @@ export default function HuntCompanion() {
                   onAction={executeMirroredAction}
                   pendingActionKey={pendingManualActionKey}
                 />
-                <TurnOrderPanel combatFrame={combatFrame} avgPartyLevel={avgPartyLevel} heroes={battleState.heroes} />
+                <TurnOrderPanel combatFrame={combatFrame} avgPartyLevel={avgPartyLevel} heroes={battleState.heroes} firestoreTurnQueue={firestoreFallbackEnabled && firestoreTurnStateQuery.data?.turnQueue ? firestoreTurnStateQuery.data.turnQueue : null} />
                 <TurnOrderDiagnosticsPanel combatFrame={combatFrame} />
               </div>
 

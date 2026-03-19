@@ -2612,6 +2612,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/pve/firestore-turn-state/:sessionId - Fetch Firestore battle turn state (auth-free)
+  const firestoreTurnStateCache = new Map<string, { data: any; fetchedAt: number }>();
+  const FIRESTORE_TURN_STATE_CACHE_TTL_MS = 2000;
+
+  app.get("/api/pve/firestore-turn-state/:sessionId", async (req: any, res: any) => {
+    const { sessionId } = req.params;
+    if (!sessionId || typeof sessionId !== 'string' || sessionId.length > 256) {
+      return res.status(400).json({ ok: false, error: 'invalid_session_id' });
+    }
+    const cached = firestoreTurnStateCache.get(sessionId);
+    if (cached && (Date.now() - cached.fetchedAt) < FIRESTORE_TURN_STATE_CACHE_TTL_MS) {
+      return res.json({ ok: true, cached: true, ...cached.data });
+    }
+    try {
+      const https = await import('https');
+      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/dfk-user-api/databases/combat-engine/documents/battles/${encodeURIComponent(sessionId)}`;
+      const rawJson = await new Promise<string>((resolve, reject) => {
+        const request = https.get(firestoreUrl, (response: any) => {
+          if (response.statusCode !== 200) {
+            reject(new Error(`Firestore returned ${response.statusCode}`));
+            return;
+          }
+          let body = '';
+          response.on('data', (chunk: any) => { body += chunk; });
+          response.on('end', () => resolve(body));
+        });
+        request.on('error', reject);
+        request.setTimeout(5000, () => { request.destroy(); reject(new Error('timeout')); });
+      });
+      const doc = JSON.parse(rawJson);
+
+      function decodeFirestoreValue(field: any): any {
+        if (!field) return null;
+        if (field.integerValue !== undefined) return parseInt(field.integerValue, 10);
+        if (field.doubleValue !== undefined) return Number(field.doubleValue);
+        if (field.stringValue !== undefined) return field.stringValue;
+        if (field.booleanValue !== undefined) return field.booleanValue;
+        if (field.nullValue !== undefined) return null;
+        if (field.arrayValue !== undefined) return (field.arrayValue.values || []).map(decodeFirestoreValue);
+        if (field.mapValue !== undefined) {
+          const result: Record<string, any> = {};
+          for (const k of Object.keys(field.mapValue.fields || {})) {
+            result[k] = decodeFirestoreValue((field.mapValue.fields || {})[k]);
+          }
+          return result;
+        }
+        return null;
+      }
+
+      const fields = doc?.fields || {};
+      const turnCount = decodeFirestoreValue(fields.turnCount);
+      const roundCount = decodeFirestoreValue(fields.roundCount);
+      const totalTicks = decodeFirestoreValue(fields.totalTicks);
+      const hasWinner = decodeFirestoreValue(fields.hasWinner);
+      const winnerSide = decodeFirestoreValue(fields.winnerSide);
+      const scenarioId = decodeFirestoreValue(fields.scenarioId);
+      const nextPlayTurnRaw = decodeFirestoreValue(fields.nextPlayTurn);
+      const HERO_SLOT_REMAP: Record<number, number> = { 0: 0, 1: 1, 2: 2 };
+      function mapFirestoreSideSlotServer(rawSide: any, rawSlot: any): { side: string; slot: number | null } {
+        const sideNum = Number(rawSide);
+        const slotNum = Number.isFinite(Number(rawSlot)) ? Number(rawSlot) : null;
+        if (sideNum === -1) {
+          return { side: 'enemy', slot: slotNum != null ? slotNum + 3 : null };
+        }
+        return { side: 'player', slot: slotNum != null ? (HERO_SLOT_REMAP[slotNum] ?? slotNum) : null };
+      }
+
+      const nextPlayTurn = nextPlayTurnRaw ? (() => {
+        const mapped = mapFirestoreSideSlotServer(nextPlayTurnRaw.side, nextPlayTurnRaw.slot);
+        return {
+          side: nextPlayTurnRaw.side,
+          slot: nextPlayTurnRaw.slot,
+          mapped,
+        };
+      })() : null;
+      const playTurnsRaw = fields.playTurns?.arrayValue?.values || [];
+      const turnQueue = playTurnsRaw.map((item: any, ordinal: number) => {
+        const decoded = decodeFirestoreValue(item);
+        if (!decoded) return null;
+        const rawSide = decoded.side ?? null;
+        const rawSlot = decoded.slot ?? null;
+        const mapped = mapFirestoreSideSlotServer(rawSide, rawSlot);
+        return {
+          ordinal,
+          side: rawSide,
+          slot: Number.isFinite(Number(rawSlot)) ? Number(rawSlot) : null,
+          mapped,
+          ticks: decoded.ticks ?? null,
+          totalTicks: decoded.totalTicks ?? null,
+        };
+      }).filter(Boolean);
+
+      const payload = { sessionId, turnCount, roundCount, totalTicks, hasWinner, winnerSide, scenarioId, nextPlayTurn, turnQueue };
+      firestoreTurnStateCache.set(sessionId, { data: payload, fetchedAt: Date.now() });
+      res.json({ ok: true, cached: false, ...payload });
+    } catch (error: any) {
+      console.error('[PVE API] Firestore turn state error:', error?.message || error);
+      res.status(502).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/pve/loot-hierarchical/:activityId - Get hierarchical loot drops with equipment variants
   app.get("/api/pve/loot-hierarchical/:activityId", async (req: any, res: any) => {
     try {
