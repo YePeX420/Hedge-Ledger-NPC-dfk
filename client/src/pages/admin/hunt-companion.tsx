@@ -769,7 +769,7 @@ function StatusBadges({ statuses }: { statuses: StatusInstance[] | undefined }) 
   if (!statuses || statuses.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1 mt-1">
-      {statuses.map((status) => {
+      {statuses.map((status, index) => {
         const input = {
           kind: 'status' as const,
           name: status.name,
@@ -789,7 +789,17 @@ function StatusBadges({ statuses }: { statuses: StatusInstance[] | undefined }) 
         const tooltip = resolveCombatTooltipMeta(input);
         return (
           <CombatMetaTooltip
-            key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}-${status.amnesiaAbilityName ?? 'na'}`}
+            key={[
+              status.category || 'status',
+              status.id || 'na',
+              status.name || 'na',
+              status.iconUrl || 'na',
+              status.sourceText || 'na',
+              status.stacks ?? 'na',
+              status.durationTurns ?? 'na',
+              status.amnesiaAbilityName ?? 'na',
+              index,
+            ].join('-')}
             input={input}
           >
             <Badge variant="secondary" className="text-[9px] inline-flex items-center gap-1 cursor-help">
@@ -1492,10 +1502,12 @@ function EnemyIntelligencePanel({
   prediction,
   isLoading,
   predictedEnemy,
+  combatFrame,
 }: {
   prediction: EnemyPrediction | null;
   isLoading: boolean;
   predictedEnemy: PredictedEnemyContext;
+  combatFrame: CombatFrame | null;
 }) {
   const [showPolicyBreakdown, setShowPolicyBreakdown] = useState(false);
 
@@ -2772,6 +2784,7 @@ export default function HuntCompanion() {
                 prediction={enemyPredictionReady ? enemyPrediction : null}
                 isLoading={enemyPredictionReady && predictMutation.isPending}
                 predictedEnemy={predictedEnemyContext}
+                combatFrame={combatFrame}
               />
               <ConsumableStrategyPanel
                 prediction={enemyPredictionReady ? enemyPrediction : null}
