@@ -335,6 +335,12 @@ function buildSupportBundle() {
         null,
       ),
       latestRuntimeCombatantSample: summarizeRuntimeCombatantSample(lastUnitSnapshot),
+      runtimeTurnOrderMetrics: redactObject(latestSnapshot?._debug?.turnOrder?.runtimeMetrics || null),
+      runtimeCombatantMetrics: redactObject(lastUnitSnapshot?._debug?.runtimeCombatantMetrics || null),
+      runtimeCacheHitCount: latestSnapshot?._debug?.turnOrder?.runtimeCacheHitCount ?? null,
+      runtimeDeepFindCount: latestSnapshot?._debug?.turnOrder?.runtimeDeepFindCount ?? null,
+      lastRuntimeInvalidationReason: latestSnapshot?._debug?.turnOrder?.lastRuntimeInvalidationReason || null,
+      playerTurnRefreshTriggered: latestSnapshot?._debug?.turnOrder?.playerTurnRefreshTriggered || null,
       latestEffectSamples: summarizeEffectSamples(latestSnapshot?.combatFrame || null),
       latestSnapshotDebug: redactObject(latestSnapshot?._debug || null),
       recentSnapshots: localSnapshots.slice(-20).map(summarizeSnapshot),
@@ -392,7 +398,7 @@ function persistExtensionState() {
 }
 
 function broadcastExtensionState() {
-  broadcast({
+  broadcastToContentScripts({
     type: 'extension_state_update',
     authUser: extensionUser,
     ownedCompanionSessions,

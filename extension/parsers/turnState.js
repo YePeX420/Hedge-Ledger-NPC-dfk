@@ -76,6 +76,9 @@
     enemies: [],
     battleBudgetRemaining: null,
     turnOrder: [],
+    isPlayerTurnActive: false,
+    playerTurnKey: null,
+    playerTurnJustActivated: false,
     lastUpdated: null,
   };
 
@@ -1115,12 +1118,10 @@
     latestRuntimeTurnOrderMetrics = runtimeResult?.metrics || null;
     if (runtimeResult?.metrics?.cacheHit) runtimeTurnOrderCacheHitCount += 1;
     if (runtimeResult?.metrics?.usedDeepFind) runtimeTurnOrderDeepFindCount += 1;
-    if (runtimeResult?.invalidationReason) {
-      lastRuntimeInvalidationReason = runtimeResult.invalidationReason;
-    }
+    lastRuntimeInvalidationReason = runtimeResult?.invalidationReason || null;
     const runtime = runtimeResult?.runtime || null;
     if (!runtime || !Array.isArray(runtime.turns) || runtime.turns.length === 0) return [];
-    const runtimeSource = runtimeResult?.metrics?.cacheHit && !runtimeResult?.metrics?.usedDeepFind
+    const runtimeSource = runtimeResult?.metrics?.cacheHit && !runtimeResult?.metrics?.usedDeepFind && !runtimeResult?.invalidationReason
       ? 'runtime_cached'
       : 'runtime_fresh';
 
@@ -1459,10 +1460,6 @@
       return;
     }
     if (!currentTurnState?.isPlayerTurnActive || !currentTurnState?.playerTurnKey) return;
-    if (!currentTurnState?.playerTurnJustActivated) {
-      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'player_turn_unchanged';
-      return;
-    }
     if (lastPlayerTurnRefreshTriggered === currentTurnState.playerTurnKey) {
       window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'already_refreshed_player_turn';
       return;
@@ -1590,6 +1587,10 @@
       } : null,
       lastUpdated: Date.now(),
     };
+
+    if (currentTurnState.playerTurnKey && latestRuntimeTurnOrder.entries?.length) {
+      latestRuntimeTurnOrder.playerTurnKey = currentTurnState.playerTurnKey;
+    }
 
       return {
         type: 'turn_snapshot',
