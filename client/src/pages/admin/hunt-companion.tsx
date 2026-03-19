@@ -10,18 +10,19 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { apiRequest } from '@/lib/queryClient';
 import { CombatAssetChip, formatCombatName } from '@/lib/dfk-combat-icons';
 import { computeCalculatedCombatSnapshot } from '@/lib/dfk-combat-formulas';
+import { CombatMetaTooltip, resolveCombatTooltipMeta, type CombatTooltipKind } from '@/lib/dfk-combat-tooltips';
 import { cn } from '@/lib/utils';
 
 interface HeroSnapshot {
   slot: number;
   heroId: string;
-  mainClass: string;
+  name: string;
+  mainClass: string | null;
   iconUrl?: string | null;
-  level: number;
+  level: number | null;
   currentHp: number;
   maxHp: number;
   currentMp: number;
@@ -191,6 +192,7 @@ interface CompanionSessionDetailResponse {
 interface HeroStateRaw {
   slot?: number;
   heroId?: string;
+  name?: string;
   mainClass?: string;
   level?: number;
   currentHp?: number;
@@ -334,8 +336,9 @@ function firebaseToHeroSnapshot(unit: FirebaseUnit, fallbackSlot: number): HeroS
   return {
     slot: unit.slot ?? fallbackSlot,
     heroId: unit.unitId || String(unit.slot ?? fallbackSlot),
-    mainClass: unit.name || 'Hero',
-    level: 0,
+    name: unit.name || `Hero ${fallbackSlot + 1}`,
+    mainClass: null,
+    level: null,
     currentHp: unit.hp ?? 0,
     maxHp: unit.maxHp ?? 0,
     currentMp: unit.mp ?? 0,
@@ -508,8 +511,8 @@ function formatCombatantTurnLabel({
 }) {
   const displayName = formatCombatName(name);
   const suffix: string[] = [];
-  if (heroClass) suffix.push(heroClass);
-  if (level != null) suffix.push(`Lvl ${level}`);
+  if (heroClass && normalizeLookupKey(heroClass) !== normalizeLookupKey(name)) suffix.push(heroClass);
+  if (level != null && level > 0) suffix.push(`Lvl ${level}`);
   return suffix.length ? `${displayName} (${suffix.join(' - ')})` : displayName;
 }
 
@@ -631,7 +634,7 @@ function getSyncIssues(firebaseState: FirebaseBattleState | undefined, domAction
 function findCombatantByHeroSnapshot(combatFrame: CombatFrame | null, hero: HeroSnapshot) {
   if (!combatFrame) return null;
   const heroId = String(hero.heroId || '').trim();
-  const heroNameKey = normalizeLookupKey(hero.mainClass);
+  const heroNameKey = normalizeLookupKey(hero.name);
   return combatFrame.combatants.find((unit) =>
     unit.side === 'player' && (
       (!!heroId && String(unit.heroId || '').trim() === heroId) ||
@@ -754,30 +757,33 @@ function HpBar({ current, max, label, color }: { current: number; max: number; l
 function StatusBadges({ statuses }: { statuses: StatusInstance[] | undefined }) {
   if (!statuses || statuses.length === 0) return null;
   return (
-    <TooltipProvider delayDuration={120}>
-      <div className="flex flex-wrap gap-1 mt-1">
-        {statuses.map((status) => {
-          const tooltip = getStatusTooltipMeta(status);
-          return (
-            <Tooltip key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}`}>
-              <TooltipTrigger asChild>
-                <Badge variant="secondary" className="text-[9px] inline-flex items-center gap-1 cursor-help">
-                  <CombatAssetChip kind="status" name={status.name} imageUrl={status.iconUrl} size="xs" />
-                  {formatCombatName(status.name)}
-                  {status.stacks ? ` x${status.stacks}` : ''}
-                  {status.durationTurns ? ` ${status.durationTurns}t` : ''}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-[220px] space-y-1">
-                <p className="text-xs font-semibold">{tooltip.title}</p>
-                <p className="text-[11px] text-muted-foreground">{tooltip.body}</p>
-                {tooltip.note && <p className="text-[11px] text-muted-foreground">{tooltip.note}</p>}
-              </TooltipContent>
-            </Tooltip>
-          );
-        })}
-      </div>
-    </TooltipProvider>
+    <div className="flex flex-wrap gap-1 mt-1">
+      {statuses.map((status) => {
+        const input = {
+          kind: 'status' as const,
+          name: status.name,
+          id: status.id,
+          iconUrl: status.iconUrl || null,
+          category: status.category,
+          stacks: status.stacks,
+          durationTurns: status.durationTurns,
+        };
+        const tooltip = resolveCombatTooltipMeta(input);
+        return (
+          <CombatMetaTooltip
+            key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}`}
+            input={input}
+          >
+            <Badge variant="secondary" className="text-[9px] inline-flex items-center gap-1 cursor-help">
+              <CombatAssetChip kind="status" name={tooltip.label} imageUrl={status.iconUrl} size="xs" />
+              {tooltip.label}
+              {status.stacks ? ` x${status.stacks}` : ''}
+              {status.durationTurns ? ` ${status.durationTurns}t` : ''}
+            </Badge>
+          </CombatMetaTooltip>
+        );
+      })}
+    </div>
   );
 }
 
@@ -798,23 +804,27 @@ function formatStatLabel(key: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-const STATUS_DESCRIPTION_MAP: Record<string, { title?: string; body: string; note?: string }> = {
-  grunt: { title: 'Boar Attack Buff', body: 'Gain +30% ATTACK for 1 turn.', note: 'Can be dispelled.' },
-  amnesia: { body: 'Prevents or disrupts ability usage.' },
-  daze: { body: 'Temporarily impairs action flow and combat tempo.' },
-  resist_generic: { title: 'Resistance Trigger', body: 'An effect was resisted or mitigated by the target.' },
-  bleed: { body: 'Damage over time effect.' },
-  blind: { body: 'Reduces hit reliability and can cause attacks to miss.' },
-  burn: { body: 'Damage over time effect.' },
-  poison: { body: 'Damage over time effect.' },
-  taunt: { body: 'Forces or biases targeting toward the affected unit.' },
-};
+const STATUS_DESCRIPTION_MAP: Record<string, { title?: string; body: string; note?: string }> = {};
+
+function inferStatusKeyFromIcon(_status: StatusInstance) {
+  return '';
+}
+
 
 function getStatusTooltipMeta(status: StatusInstance) {
   const key = normalizeLookupKey(status.id || status.name);
-  const mapped = STATUS_DESCRIPTION_MAP[key] || STATUS_DESCRIPTION_MAP[normalizeLookupKey(status.name)];
-  const title = mapped?.title || formatCombatName(status.name);
-  const body = mapped?.body || `${formatCombatName(status.name)} is currently active.`;
+  const inferredKey = inferStatusKeyFromIcon(status);
+  const mapped =
+    STATUS_DESCRIPTION_MAP[key] ||
+    STATUS_DESCRIPTION_MAP[normalizeLookupKey(status.name)] ||
+    STATUS_DESCRIPTION_MAP[inferredKey];
+  const rawName = String(status.name || '').trim();
+  const inferredTitle = inferredKey ? (STATUS_DESCRIPTION_MAP[inferredKey]?.title || formatCombatName(inferredKey)) : null;
+  const title =
+    mapped?.title ||
+    (/^\d+$/.test(rawName) || /^effect[_-]?\d+$/i.test(rawName) ? inferredTitle : null) ||
+    formatCombatName(rawName || inferredKey || 'Effect');
+  const body = mapped?.body || `${title} is currently active.`;
   const noteParts: string[] = [];
   if (mapped?.note) noteParts.push(mapped.note);
   if (status.stacks) noteParts.push(`Stacks: ${status.stacks}`);
@@ -897,7 +907,7 @@ function DetailChipGroup({
 }: {
   title: string;
   names: string[];
-  kind?: 'ability' | 'consumable';
+  kind?: CombatTooltipKind;
   emptyLabel: string;
 }) {
   const uniqueNames = [...new Set((names || []).filter(Boolean))];
@@ -905,12 +915,20 @@ function DetailChipGroup({
     <div>
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
       <div className="flex flex-wrap gap-1">
-        {uniqueNames.map((name) => (
-          <Badge key={name} variant={kind ? 'secondary' : 'outline'} className="text-[10px] inline-flex items-center gap-1">
-            {kind && <CombatAssetChip kind={kind} name={name} size="xs" />}
-            {formatCombatName(name)}
-          </Badge>
-        ))}
+        {uniqueNames.map((name) => {
+          const displayKind = kind === 'consumable' ? 'consumable' : kind === 'status' ? 'status' : 'ability';
+          const badge = (
+            <Badge key={name} variant={kind ? 'secondary' : 'outline'} className="text-[10px] inline-flex items-center gap-1 cursor-help">
+              {(kind === 'ability' || kind === 'consumable') && <CombatAssetChip kind={displayKind} name={name} size="xs" />}
+              {formatCombatName(name)}
+            </Badge>
+          );
+          return kind ? (
+            <CombatMetaTooltip key={`${title}-${name}`} input={{ kind, name }}>
+              {badge}
+            </CombatMetaTooltip>
+          ) : badge;
+        })}
         {uniqueNames.length === 0 && <span className="text-xs text-muted-foreground">{emptyLabel}</span>}
       </div>
     </div>
@@ -1062,10 +1080,10 @@ function CombatantDetailDialog({
                 formatter={(_, value) => value.toFixed(2)}
               />
               <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3 space-y-3">
-                <DetailChipGroup title="Traits" names={shownTraits} emptyLabel="No captured traits." />
-                <DetailChipGroup title="Passives" names={shownPassives} emptyLabel="No captured passives." />
-                <DetailChipGroup title="Abilities" names={shownAbilities} kind="ability" emptyLabel="No captured abilities." />
-                <DetailChipGroup title="Items" names={shownItems} kind="consumable" emptyLabel="No captured items." />
+            <DetailChipGroup title="Traits" names={shownTraits} kind="trait" emptyLabel="No captured traits." />
+            <DetailChipGroup title="Passives" names={shownPassives} kind="passive" emptyLabel="No captured passives." />
+            <DetailChipGroup title="Abilities" names={shownAbilities} kind="ability" emptyLabel="No captured abilities." />
+            <DetailChipGroup title="Items" names={shownItems} kind="consumable" emptyLabel="No captured items." />
               </div>
             </div>
           </div>
@@ -1165,25 +1183,39 @@ function ActiveTurnActionGrid({
         {actions.map((action) => {
           const actionKey = `${action.group || title}:${action.name}`;
           const canExecute = executionMode !== 'observe_only' && action.available;
+          const button = (
+            <button
+              key={`${title}-${action.name}`}
+              type="button"
+              aria-disabled={!canExecute}
+              onClick={() => canExecute && onAction(action)}
+              className={cn(
+                'inline-flex items-center gap-2 rounded-md border px-2 py-1 text-[11px] transition-colors',
+                action.available
+                  ? 'border-muted-foreground/20 bg-muted/20 text-foreground'
+                  : 'border-muted-foreground/10 bg-muted/10 text-muted-foreground opacity-70',
+                canExecute ? 'cursor-pointer hover:border-primary/40 hover:bg-primary/10' : 'cursor-not-allowed',
+                pendingActionKey === actionKey ? 'border-primary bg-primary/15' : '',
+              )}
+            >
+              <CombatAssetChip kind={kind} name={action.name} imageUrl={action.iconUrl || null} size="xs" />
+              <span>{formatCombatName(action.name)}</span>
+            </button>
+          );
           return (
-          <button
-            key={`${title}-${action.name}`}
-            type="button"
-            disabled={!canExecute}
-            onClick={() => canExecute && onAction(action)}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-md border px-2 py-1 text-[11px] transition-colors',
-              action.available
-                ? 'border-muted-foreground/20 bg-muted/20 text-foreground'
-                : 'border-muted-foreground/10 bg-muted/10 text-muted-foreground opacity-70',
-              canExecute ? 'cursor-pointer hover:border-primary/40 hover:bg-primary/10' : 'cursor-default',
-              pendingActionKey === actionKey ? 'border-primary bg-primary/15' : '',
-            )}
-          >
-            <CombatAssetChip kind={kind} name={action.name} imageUrl={action.iconUrl || null} size="xs" />
-            <span>{formatCombatName(action.name)}</span>
-          </button>
-        )})}
+            <CombatMetaTooltip
+              key={`${title}-${action.name}`}
+              input={{
+                kind,
+                name: action.name,
+                iconUrl: action.iconUrl || null,
+                available: action.available,
+              }}
+            >
+              {button}
+            </CombatMetaTooltip>
+          );
+        })}
       </div>
     </div>
   );
@@ -1355,7 +1387,9 @@ function TurnOrderPanel({
           {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
           {rows.map((row) => {
             const combatant = combatFrame?.combatants.find((unit) => unit.unitId === row.unitId) || null;
-            const fallbackHero = row.side === 'player' ? (heroes[playerRowIndex++] || null) : null;
+            const fallbackHero = row.side === 'player' && heroes.length > 0
+              ? heroes[(playerRowIndex++) % heroes.length]
+              : null;
             const displayName = fallbackHero?.name || combatant?.name || row.name;
             const displayHeroClass = row.heroClass || combatant?.heroClass || fallbackHero?.mainClass || null;
             const displayHeroId = row.heroId || combatant?.heroId || fallbackHero?.heroId || null;
@@ -1534,13 +1568,15 @@ function EnemyIntelligencePanel({
 
         {topAction && (
           <div className="p-3 rounded-md bg-muted/20 border border-muted-foreground/10 mb-3" data-testid="prediction-top-action">
-            <div className="flex items-center gap-2 mb-1">
-              <CombatAssetChip kind="ability" name={topAction[0]} size="sm" />
-              <span className="text-sm font-semibold">{formatCombatName(topAction[0])}</span>
-              <span className={`text-xs font-mono ${confidenceColor}`}>
-                {Math.round(topAction[1] * 100)}%
-              </span>
-            </div>
+            <CombatMetaTooltip input={{ kind: 'ability', name: topAction[0] }}>
+              <div className="flex items-center gap-2 mb-1 cursor-help">
+                <CombatAssetChip kind="ability" name={topAction[0]} size="sm" />
+                <span className="text-sm font-semibold">{formatCombatName(topAction[0])}</span>
+                <span className={`text-xs font-mono ${confidenceColor}`}>
+                  {Math.round(topAction[1] * 100)}%
+                </span>
+              </div>
+            </CombatMetaTooltip>
             <p className="text-[10px] text-muted-foreground">Most likely next enemy action</p>
           </div>
         )}
@@ -1549,16 +1585,17 @@ function EnemyIntelligencePanel({
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Ability Availability</p>
           <div className="flex flex-wrap gap-1" data-testid="ability-availability-grid">
             {(prediction.availability || []).map((a) => (
-              <Badge
-                key={a.name}
-                variant={a.available ? 'default' : 'secondary'}
-                className="text-[9px] inline-flex items-center gap-1"
-                data-testid={`ability-${a.name.replace(/\s+/g, '-').toLowerCase()}`}
-              >
-                <CombatAssetChip kind="ability" name={a.name} size="xs" />
-                {a.available ? <Unlock className="w-2.5 h-2.5 mr-0.5" /> : <Lock className="w-2.5 h-2.5 mr-0.5" />}
-                {formatCombatName(a.name)}
-              </Badge>
+              <CombatMetaTooltip key={a.name} input={{ kind: 'ability', name: a.name, available: a.available }}>
+                <Badge
+                  variant={a.available ? 'default' : 'secondary'}
+                  className="text-[9px] inline-flex items-center gap-1 cursor-help"
+                  data-testid={`ability-${a.name.replace(/\s+/g, '-').toLowerCase()}`}
+                >
+                  <CombatAssetChip kind="ability" name={a.name} size="xs" />
+                  {a.available ? <Unlock className="w-2.5 h-2.5 mr-0.5" /> : <Lock className="w-2.5 h-2.5 mr-0.5" />}
+                  {formatCombatName(a.name)}
+                </Badge>
+              </CombatMetaTooltip>
             ))}
           </div>
         </div>
@@ -1677,16 +1714,18 @@ function ConsumableStrategyPanel({ prediction, battleBudget }: {
         ) : (
           <div className="space-y-2" data-testid="consumable-list">
             {consumables.map((c) => (
-              <div key={c.name} className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-md bg-muted/20 border border-muted-foreground/10">
-                <div className="flex items-center gap-2">
-                  <CombatAssetChip kind="consumable" name={c.name} size="sm" />
-                  <span className="text-xs font-medium">{formatCombatName(c.name)}</span>
-                  <Badge variant="secondary" className="text-[9px]">Cost: {c.cost}</Badge>
+              <CombatMetaTooltip key={c.name} input={{ kind: 'consumable', name: c.name, available: c.available }}>
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-md bg-muted/20 border border-muted-foreground/10 cursor-help">
+                  <div className="flex items-center gap-2">
+                    <CombatAssetChip kind="consumable" name={c.name} size="sm" />
+                    <span className="text-xs font-medium">{formatCombatName(c.name)}</span>
+                    <Badge variant="secondary" className="text-[9px]">Cost: {c.cost}</Badge>
+                  </div>
+                  <Badge variant={c.available ? 'default' : 'secondary'} className="text-[9px]">
+                    {c.available ? 'Available' : 'Unavailable'}
+                  </Badge>
                 </div>
-                <Badge variant={c.available ? 'default' : 'secondary'} className="text-[9px]">
-                  {c.available ? 'Available' : 'Unavailable'}
-                </Badge>
-              </div>
+              </CombatMetaTooltip>
             ))}
           </div>
         )}
@@ -2190,13 +2229,16 @@ export default function HuntCompanion() {
       const heroes: HeroSnapshot[] = rawStates.map((h, i) => ({
         slot: h.slot ?? i,
         heroId: h.heroId || String(i),
-        mainClass: h.mainClass || '?',
-        level: h.level || 0,
+        name: h.name || battleState?.heroes?.[i]?.name || `Hero ${i + 1}`,
+        mainClass: h.mainClass || battleState?.heroes?.[i]?.mainClass || null,
+        level: h.level ?? battleState?.heroes?.[i]?.level ?? null,
         currentHp: h.currentHp ?? h.hp ?? 0,
         maxHp: h.maxHp ?? 0,
         currentMp: h.currentMp ?? h.mp ?? 0,
         maxMp: h.maxMp ?? 0,
         isAlive: (h.currentHp ?? h.hp ?? 0) > 0,
+        iconUrl: battleState?.heroes?.[i]?.iconUrl || null,
+        statuses: battleState?.heroes?.[i]?.statuses || [],
       }));
       const enemyId = data.enemyId || null;
       setBattleState((prev) => {
@@ -2645,10 +2687,12 @@ export default function HuntCompanion() {
                           </span>
                         </div>
                         {abilityLabel && (
-                          <span className="inline-flex items-center gap-1 text-muted-foreground">
-                            <CombatAssetChip kind="ability" name={abilityLabel} size="xs" />
-                            {formatCombatName(abilityLabel)}
-                          </span>
+                          <CombatMetaTooltip input={{ kind: 'ability', name: abilityLabel }}>
+                            <span className="inline-flex items-center gap-1 text-muted-foreground cursor-help">
+                              <CombatAssetChip kind="ability" name={abilityLabel} size="xs" />
+                              {formatCombatName(abilityLabel)}
+                            </span>
+                          </CombatMetaTooltip>
                         )}
                         {turn.targets?.map((t, j) => (
                           <span key={j} className={t.damage > 0 ? 'text-red-400' : t.damage < 0 ? 'text-green-400' : 'text-muted-foreground'}>
