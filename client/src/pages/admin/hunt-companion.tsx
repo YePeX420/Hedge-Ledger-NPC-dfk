@@ -601,16 +601,20 @@ function formatCombatantTurnLabel({
   name,
   heroClass,
   level,
+  ticksUntilTurn,
 }: {
   name: string;
   heroClass?: string | null;
   level?: number | null;
+  ticksUntilTurn?: number | null;
 }) {
   const displayName = formatCombatName(name);
-  const suffix: string[] = [];
-  if (heroClass && normalizeLookupKey(heroClass) !== normalizeLookupKey(name)) suffix.push(heroClass);
-  if (level != null && level > 0) suffix.push(`Lvl ${level}`);
-  return suffix.length ? `${displayName} (${suffix.join(' - ')})` : displayName;
+  const segments: string[] = [];
+  if (heroClass && normalizeLookupKey(heroClass) !== normalizeLookupKey(name)) segments.push(heroClass);
+  segments.push(displayName);
+  if (level != null && level > 0) segments.push(`Lv.${level}`);
+  if (ticksUntilTurn != null) segments.push(ticksUntilTurn.toFixed(3));
+  return segments.join(' - ');
 }
 
 function normalizeLookupKey(value: string | null | undefined): string {
@@ -1724,6 +1728,7 @@ function TurnOrderPanel({
                       name: displayName,
                       heroClass: displayHeroClass,
                       level: displayLevel,
+                      ticksUntilTurn: row.ticksUntilTurn,
                     })}
                   </span>
                   {calculated && (
@@ -1733,7 +1738,6 @@ function TurnOrderPanel({
                   )}
                 </div>
               </div>
-              <span className="font-mono">{row.ticksUntilTurn != null ? row.ticksUntilTurn : 'order only'}</span>
             </div>
           )})}
         </div>
@@ -1858,16 +1862,14 @@ function TurnOrderDiagnosticsPanel({
                       {candidate.entries.length === 0 ? (
                         <p className="text-muted-foreground">No rows captured.</p>
                       ) : candidate.entries.slice(0, 4).map((entry) => (
-                        <div key={`${candidate.kind}-${entry.unitId}-${entry.ordinal}`} className="flex items-center justify-between gap-2 rounded bg-background/70 px-2 py-1">
+                        <div key={`${candidate.kind}-${entry.unitId}-${entry.ordinal}`} className="flex items-center gap-2 rounded bg-background/70 px-2 py-1">
                           <span className="truncate">
                             {formatCombatantTurnLabel({
                               name: entry.name,
                               heroClass: entry.heroClass || null,
                               level: entry.level ?? null,
+                              ticksUntilTurn: entry.ticksUntilTurn ?? null,
                             })}
-                          </span>
-                          <span className="font-mono text-[9px] text-muted-foreground">
-                            {entry.ticksUntilTurn != null ? formatTurnOrderTickValue(entry.ticksUntilTurn) : 'order'}
                           </span>
                         </div>
                       ))}
