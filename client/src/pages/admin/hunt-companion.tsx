@@ -611,6 +611,9 @@ function mergeCombatFrames(
       iconUrl: unit.iconUrl || prevUnit?.iconUrl || null,
       heroClass: unit.heroClass || prevUnit?.heroClass || null,
       heroDetail: unit.heroDetail || prevUnit?.heroDetail || null,
+      buffs: unit.buffs?.length ? unit.buffs : (prevUnit?.buffs || []),
+      debuffs: unit.debuffs?.length ? unit.debuffs : (prevUnit?.debuffs || []),
+      visibleEffects: unit.visibleEffects?.length ? unit.visibleEffects : (prevUnit?.visibleEffects || []),
     };
   });
   return {
@@ -1528,7 +1531,11 @@ function EnemyIntelligencePanel({
   const sortedActions = Object.entries(prediction.finalPolicy).sort((a, b) => b[1] - a[1]);
   const topAction = sortedActions[0];
   const confidenceColor = prediction.confidence > 0.7 ? 'text-green-500' : prediction.confidence > 0.4 ? 'text-amber-500' : 'text-red-400';
-  const targetStatuses = predictedEnemy.enemy?.statuses || [];
+  const matchedPredictedEnemy = predictedEnemy.enemy ? findCombatantByEnemySnapshot(combatFrame, predictedEnemy.enemy) : null;
+  const targetStatuses =
+    (matchedPredictedEnemy?.visibleEffects && matchedPredictedEnemy.visibleEffects.length > 0 ? matchedPredictedEnemy.visibleEffects : null)
+    || predictedEnemy.enemy?.statuses
+    || [];
   const amnesiaStatuses = targetStatuses.filter((status) => /amnesia/i.test(status.name));
 
   return (
@@ -2595,6 +2602,10 @@ export default function HuntCompanion() {
                 <div className="space-y-3">
                   {battleState.heroes.map((hero) => {
                     const matchedHero = resolveHeroDisplayFallback(combatFrame, hero);
+                    const resolvedStatuses =
+                      (matchedHero?.visibleEffects && matchedHero.visibleEffects.length > 0 ? matchedHero.visibleEffects : null)
+                      || (hero.statuses && hero.statuses.length > 0 ? hero.statuses : null)
+                      || [];
                     return (
                       <CombatantStatusCard
                         key={hero.slot}
@@ -2608,7 +2619,7 @@ export default function HuntCompanion() {
                           currentMp: hero.currentMp,
                           maxMp: hero.maxMp,
                           isAlive: hero.isAlive,
-                          statuses: hero.statuses,
+                          statuses: resolvedStatuses,
                         }}
                         kind="hero"
                         isActive={isHeroSnapshotActive(combatFrame, hero, battleState.activeHeroSlot)}
@@ -2630,8 +2641,8 @@ export default function HuntCompanion() {
                     {battleState.enemies.map((enemy, i) => {
                       const matchedEnemy = findCombatantByEnemySnapshot(combatFrame, enemy);
                       const resolvedStatuses =
-                        (enemy.statuses && enemy.statuses.length > 0 ? enemy.statuses : null)
-                        || (matchedEnemy?.visibleEffects && matchedEnemy.visibleEffects.length > 0 ? matchedEnemy.visibleEffects : null)
+                        (matchedEnemy?.visibleEffects && matchedEnemy.visibleEffects.length > 0 ? matchedEnemy.visibleEffects : null)
+                        || (enemy.statuses && enemy.statuses.length > 0 ? enemy.statuses : null)
                         || ((enemy.debuffs || enemy.buffs)
                           ? [
                               ...(enemy.buffs || []).map((name) => ({ id: name, name, category: 'buff', stacks: null, durationTurns: null })),
