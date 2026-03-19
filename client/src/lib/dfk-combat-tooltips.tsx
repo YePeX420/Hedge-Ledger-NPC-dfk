@@ -28,6 +28,13 @@ export interface CombatTooltipResolutionInput {
   stacks?: number | null;
   durationTurns?: number | null;
   available?: boolean | null;
+  tooltipTitle?: string | null;
+  tooltipSubtitle?: string | null;
+  tooltipBullets?: string[] | null;
+  tooltipNote?: string | null;
+  dispellable?: boolean | null;
+  amnesiaAbilityName?: string | null;
+  amnesiaTurns?: number | null;
 }
 
 interface AbilityEffectRecord {
@@ -298,6 +305,36 @@ function buildFallbackMeta(input: CombatTooltipResolutionInput, inferredKey: str
   };
 }
 
+function buildRuntimeMeta(input: CombatTooltipResolutionInput): CombatTooltipMeta | null {
+  const hasRuntimeContent =
+    Boolean(input.tooltipTitle || input.tooltipSubtitle || input.tooltipNote) ||
+    Boolean(input.tooltipBullets && input.tooltipBullets.length > 0) ||
+    Boolean(input.amnesiaAbilityName && input.amnesiaTurns != null);
+  if (!hasRuntimeContent) return null;
+
+  const runtimeBullets = uniqueStrings([
+    ...(input.tooltipBullets || []),
+    input.amnesiaAbilityName && input.amnesiaTurns != null
+      ? `Cannot use ${formatCombatName(input.amnesiaAbilityName)} for ${input.amnesiaTurns} turns.`
+      : null,
+  ]);
+  const fallbackTitle = prettifyFallbackLabel(input.name || input.id, input.kind);
+  const runtimeTitle = input.tooltipTitle || fallbackTitle;
+  let runtimeSubtitle = input.tooltipSubtitle || null;
+  if (!runtimeSubtitle && input.dispellable === true) runtimeSubtitle = 'Can be dispelled';
+
+  return {
+    label: runtimeTitle,
+    title: runtimeTitle,
+    subtitle: runtimeSubtitle,
+    detailLines: [],
+    bullets: runtimeBullets,
+    note: input.tooltipNote || (input.category ? `Category: ${formatCombatName(input.category)}` : null),
+    dispellable: input.dispellable ?? undefined,
+    source: 'runtime_tooltip',
+  };
+}
+
 const TOOLTIP_OVERRIDES: Partial<Record<CombatTooltipKind, Record<string, CombatTooltipMeta>>> = {
   status: {
     grunt: {
@@ -480,6 +517,9 @@ function collectLookupKeys(input: CombatTooltipResolutionInput): string[] {
 }
 
 export function resolveCombatTooltipMeta(input: CombatTooltipResolutionInput): CombatTooltipMeta {
+  const runtimeMeta = buildRuntimeMeta(input);
+  if (runtimeMeta) return runtimeMeta;
+
   const lookupKeys = collectLookupKeys(input);
   for (const key of lookupKeys) {
     const override = TOOLTIP_OVERRIDES[input.kind]?.[key];

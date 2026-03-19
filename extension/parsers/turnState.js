@@ -852,6 +852,68 @@
   }
 
   function readEnemyStatusEffects() {
+    function extractTrackerTooltipMeta(tooltipEl, rawName) {
+      const candidates = [
+        tooltipEl,
+        tooltipEl?.querySelector?.('img')?.parentElement || null,
+        tooltipEl?.parentElement || null,
+      ].filter(Boolean);
+      const tippyOwner = candidates.find((candidate) => candidate && candidate._tippy?.props?.content);
+      const content = tippyOwner?._tippy?.props?.content || null;
+      if (!content) return null;
+
+      const extractTextLines = (value) => {
+        const raw = String(value || '').replace(/\r/g, '\n');
+        return raw
+          .split(/\n+/)
+          .map((line) => normalizeText(line))
+          .filter(Boolean);
+      };
+
+      let lines = [];
+      let title = '';
+      if (typeof content === 'string') {
+        lines = extractTextLines(content);
+        title = lines[0] || normalizeText(rawName);
+      } else if (content && typeof content === 'object') {
+        const titleNode = content.querySelector?.('.tracker-name');
+        const infoNode = content.querySelector?.('.tracker-info') || content;
+        title = normalizeText(titleNode?.textContent || rawName);
+        if (infoNode?.children?.length) {
+          lines = Array.from(infoNode.children)
+            .map((child) => normalizeText(child.innerText || child.textContent || ''))
+            .filter(Boolean)
+            .filter((line) => line !== title);
+        } else {
+          lines = extractTextLines(content.innerText || content.textContent || '');
+          if (lines[0] === title) lines = lines.slice(1);
+        }
+      }
+
+      if (!title) title = normalizeText(rawName);
+      const isSubtitle = (line) => /^(can|cannot)\b|^passive\b|^mana cost\b|^range\b/i.test(line);
+      const subtitle = lines[0] && isSubtitle(lines[0]) ? lines.shift() : null;
+      const bullets = lines.filter(Boolean);
+      const amnesiaLine = bullets.find((line) => /cannot use .+ for \d+ turns?/i.test(line)) || null;
+      const amnesiaMatch = amnesiaLine ? amnesiaLine.match(/cannot use\s+(.+?)\s+for\s+(\d+)\s+turn/i) : null;
+      const dispellable = subtitle
+        ? /can be dispelled|can be cleansed/i.test(subtitle)
+          ? true
+          : /cannot be dispelled|cannot be cleansed/i.test(subtitle)
+          ? false
+          : null
+        : null;
+      return {
+        tooltipTitle: title || null,
+        tooltipSubtitle: subtitle || null,
+        tooltipBullets: bullets,
+        tooltipNote: null,
+        dispellable,
+        amnesiaAbilityName: amnesiaMatch ? normalizeText(amnesiaMatch[1]) : null,
+        amnesiaTurns: amnesiaMatch ? parseInt(amnesiaMatch[2], 10) : null,
+      };
+    }
+
     const effectMap = {};
     document.querySelectorAll('.enemy-content-item').forEach((card) => {
       if (!isVisible(card)) return;
@@ -871,6 +933,7 @@
         if (!rawName && !iconUrl) return null;
         const countText = normalizeText(tooltip.textContent || '');
         const stacks = /^\d+$/.test(countText) ? parseInt(countText, 10) : null;
+        const tooltipMeta = extractTrackerTooltipMeta(tooltip, rawName);
         return {
           id: normalizedName(rawName || `effect_${index + 1}`),
           name: rawName || `Effect ${index + 1}`,
@@ -879,6 +942,13 @@
           durationTurns: stacks,
           iconUrl,
           sourceText: countText || null,
+          tooltipTitle: tooltipMeta?.tooltipTitle || null,
+          tooltipSubtitle: tooltipMeta?.tooltipSubtitle || null,
+          tooltipBullets: tooltipMeta?.tooltipBullets || [],
+          tooltipNote: tooltipMeta?.tooltipNote || null,
+          dispellable: tooltipMeta?.dispellable ?? null,
+          amnesiaAbilityName: tooltipMeta?.amnesiaAbilityName || null,
+          amnesiaTurns: tooltipMeta?.amnesiaTurns ?? null,
         };
       }).filter(Boolean);
       if (effects.length > 0) effectMap[key] = effects;

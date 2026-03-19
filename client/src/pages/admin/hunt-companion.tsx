@@ -84,6 +84,14 @@ interface StatusInstance {
   stacks: number | null;
   durationTurns: number | null;
   iconUrl?: string | null;
+  sourceText?: string | null;
+  tooltipTitle?: string | null;
+  tooltipSubtitle?: string | null;
+  tooltipBullets?: string[] | null;
+  tooltipNote?: string | null;
+  dispellable?: boolean | null;
+  amnesiaAbilityName?: string | null;
+  amnesiaTurns?: number | null;
 }
 
 interface HeroDetailData {
@@ -767,11 +775,18 @@ function StatusBadges({ statuses }: { statuses: StatusInstance[] | undefined }) 
           category: status.category,
           stacks: status.stacks,
           durationTurns: status.durationTurns,
+          tooltipTitle: status.tooltipTitle || null,
+          tooltipSubtitle: status.tooltipSubtitle || null,
+          tooltipBullets: status.tooltipBullets || [],
+          tooltipNote: status.tooltipNote || null,
+          dispellable: status.dispellable ?? null,
+          amnesiaAbilityName: status.amnesiaAbilityName || null,
+          amnesiaTurns: status.amnesiaTurns ?? null,
         };
         const tooltip = resolveCombatTooltipMeta(input);
         return (
           <CombatMetaTooltip
-            key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}`}
+            key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}-${status.amnesiaAbilityName ?? 'na'}`}
             input={input}
           >
             <Badge variant="secondary" className="text-[9px] inline-flex items-center gap-1 cursor-help">

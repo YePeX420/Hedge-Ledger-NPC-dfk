@@ -200,6 +200,19 @@
         durationTurns: turnMatch ? parseInt(turnMatch[1], 10) : null,
         iconUrl: typeof value === 'object' && value !== null ? (value.iconUrl || null) : null,
         sourceText: raw || null,
+        tooltipTitle: typeof value === 'object' && value !== null ? (value.tooltipTitle || null) : null,
+        tooltipSubtitle: typeof value === 'object' && value !== null ? (value.tooltipSubtitle || null) : null,
+        tooltipBullets: typeof value === 'object' && value !== null && Array.isArray(value.tooltipBullets)
+          ? value.tooltipBullets.map((line) => String(line || '').trim()).filter(Boolean)
+          : [],
+        tooltipNote: typeof value === 'object' && value !== null ? (value.tooltipNote || null) : null,
+        dispellable: typeof value === 'object' && value !== null && typeof value.dispellable === 'boolean'
+          ? value.dispellable
+          : null,
+        amnesiaAbilityName: typeof value === 'object' && value !== null ? (value.amnesiaAbilityName || null) : null,
+        amnesiaTurns: typeof value === 'object' && value !== null && Number.isFinite(Number(value.amnesiaTurns))
+          ? Number(value.amnesiaTurns)
+          : null,
       };
     }).filter((status) => !!status.name);
   }
