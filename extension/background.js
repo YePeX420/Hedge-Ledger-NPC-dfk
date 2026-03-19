@@ -183,6 +183,7 @@ function summarizeCombatFrame(frame) {
     combatantCount: Array.isArray(frame.combatants) ? frame.combatants.length : 0,
     turnOrderCount: Array.isArray(frame.turnOrder) ? frame.turnOrder.length : 0,
     battleLogCount: Array.isArray(frame.battleLogEntries) ? frame.battleLogEntries.length : 0,
+    turnOrderDiagnostics: summarizeTurnOrderDiagnostics(frame.turnOrderDiagnostics || null),
     predictionInputs: redactObject(frame.predictionInputs || null),
     captureMeta: redactObject(frame.captureMeta || {}),
   };
@@ -201,6 +202,25 @@ function summarizeTurnOrderRow(row) {
     heroClass: row.heroClass || null,
     level: row.level ?? null,
     source: row.source || null,
+  });
+}
+
+function summarizeTurnOrderDiagnostics(diagnostics) {
+  if (!diagnostics) return null;
+  return redactObject({
+    snapshotId: diagnostics.snapshotId || null,
+    signature: diagnostics.signature || null,
+    turnNumber: diagnostics.turnNumber ?? null,
+    selectedSource: diagnostics.selectedSource || null,
+    selectedKind: diagnostics.selectedKind || null,
+    selectedConfidence: diagnostics.selectedConfidence ?? null,
+    selectedReason: diagnostics.selectedReason || null,
+    candidateCount: Array.isArray(diagnostics.candidates) ? diagnostics.candidates.length : 0,
+    historyCount: diagnostics.historyCount ?? null,
+    deltaSummary: diagnostics.deltaSummary || null,
+    fieldMatches: Array.isArray(diagnostics.fieldMatches) ? diagnostics.fieldMatches : [],
+    fieldRejections: Array.isArray(diagnostics.fieldRejections) ? diagnostics.fieldRejections : [],
+    liveCaptureMode: diagnostics.liveCaptureMode || null,
   });
 }
 
@@ -400,6 +420,8 @@ function persistExtensionState() {
 function broadcastExtensionState() {
   broadcastToContentScripts({
     type: 'extension_state_update',
+    status: connectionStatus,
+    isJoined,
     authUser: extensionUser,
     ownedCompanionSessions,
     selectedCompanionSessionId,

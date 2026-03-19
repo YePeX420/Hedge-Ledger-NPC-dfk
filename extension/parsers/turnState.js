@@ -76,8 +76,16 @@
     enemies: [],
     battleBudgetRemaining: null,
     turnOrder: [],
+    turnOrderHistory: [],
+    turnOrderDelta: null,
+    turnOrderDiagnostics: null,
+    turnOrderSource: null,
+    turnOrderSnapshotId: null,
+    turnOrderSignature: null,
+    turnOrderCapturedAt: null,
     isPlayerTurnActive: false,
     playerTurnKey: null,
+    playerTurnIdentityKey: null,
     playerTurnJustActivated: false,
     lastUpdated: null,
   };
@@ -108,18 +116,25 @@
     capturedAt: 0,
     turnNumber: null,
   };
+  let latestTurnOrderTimeline = {
+    lastSignature: null,
+    lastSnapshot: null,
+    history: [],
+  };
   let lastTurnOrderPrimeAt = 0;
   let turnOrderPrimeInFlight = false;
   let lastUserInteractionAt = Date.now();
   let lastCommandPanelDebug = null;
-  const ENABLE_TURN_ORDER_AUTO_PRIME = true;
+  const ENABLE_TURN_ORDER_AUTO_PRIME = false;
   const TURN_ORDER_RUNTIME_TTL_MS = 15000;
   const TURN_ORDER_AUTO_PRIME_BACKSTOP_MS = 30000;
+  const TURN_ORDER_HISTORY_LIMIT = 25;
   let runtimeTurnOrderCacheHitCount = 0;
   let runtimeTurnOrderDeepFindCount = 0;
   let latestRuntimeTurnOrderMetrics = null;
   let lastRuntimeInvalidationReason = null;
   let lastPlayerTurnRefreshTriggered = null;
+  let playerTurnActivationCount = 0;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -135,6 +150,412 @@
 
   function normalizedName(value) {
     return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+
+  function toNullableNumber(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function buildTurnOrderEntryKey(entry) {
+    if (!entry) return 'na';
+    return [
+      entry.unitId ?? 'na',
+      entry.side ?? 'na',
+      entry.slot ?? 'na',
+      entry.ticksUntilTurn ?? 'na',
+      entry.totalTicks ?? 'na',
+      entry.turnType ?? 'na',
+    ].join(':');
+  }
+
+  function buildTurnOrderEntryIdentity(entry) {
+    if (!entry) return 'na';
+    return [
+      entry.unitId ?? 'na',
+      entry.side ?? 'na',
+      entry.slot ?? 'na',
+      normalizedName(entry.name || ''),
+    ].join(':');
+  }
+
+  function compareNullableNumbers(a, b) {
+    const left = a == null ? Number.POSITIVE_INFINITY : a;
+    const right = b == null ? Number.POSITIVE_INFINITY : b;
+    if (left !== right) return left - right;
+    return 0;
+  }
+
+  function sortTurnOrderEntries(entries) {
+    return (Array.isArray(entries) ? entries : [])
+      .map((entry, index) => ({
+        ...entry,
+        side: entry.side === 'enemy' ? 'enemy' : 'player',
+        slot: Number.isFinite(Number(entry.slot)) ? Number(entry.slot) : null,
+        ticksUntilTurn: toNullableNumber(entry.ticksUntilTurn ?? entry.ticks ?? null),
+        totalTicks: toNullableNumber(entry.totalTicks ?? null),
+        turnType: toNullableNumber(entry.turnType ?? null),
+        ordinal: Number.isFinite(Number(entry.ordinal)) ? Number(entry.ordinal) : index,
+      }))
+      .sort((a, b) => {
+        const tickCompare = compareNullableNumbers(a.ticksUntilTurn, b.ticksUntilTurn);
+        if (tickCompare !== 0) return tickCompare;
+        const totalTickCompare = compareNullableNumbers(a.totalTicks, b.totalTicks);
+        if (totalTickCompare !== 0) return totalTickCompare;
+        const ordinalCompare = compareNullableNumbers(a.ordinal, b.ordinal);
+        if (ordinalCompare !== 0) return ordinalCompare;
+        const sideCompare = String(a.side).localeCompare(String(b.side));
+        if (sideCompare !== 0) return sideCompare;
+        const slotCompare = compareNullableNumbers(a.slot, b.slot);
+        if (slotCompare !== 0) return slotCompare;
+        return String(a.unitId || '').localeCompare(String(b.unitId || ''));
+      })
+      .map((entry, index) => ({
+        ...entry,
+        ordinal: index,
+      }));
+  }
+
+  function buildTurnOrderSignature(entries, turnNumber, activeTurnUnitId) {
+    return [
+      turnNumber ?? 'na',
+      activeTurnUnitId || 'na',
+      ...(entries || []).map((entry) => buildTurnOrderEntryKey(entry)),
+    ].join('|');
+  }
+
+  function normalizeTurnOrderDeltaChange(before, after) {
+    if (!before && !after) return null;
+    const source = after || before;
+    return {
+      unitId: source?.unitId || 'unknown',
+      name: source?.name || 'Unknown',
+      side: source?.side || 'player',
+      slot: source?.slot ?? null,
+      beforeTicksUntilTurn: before?.ticksUntilTurn ?? null,
+      afterTicksUntilTurn: after?.ticksUntilTurn ?? null,
+      ticksDelta: before?.ticksUntilTurn != null && after?.ticksUntilTurn != null
+        ? Math.round((after.ticksUntilTurn - before.ticksUntilTurn) * 1000) / 1000
+        : null,
+      beforeTotalTicks: before?.totalTicks ?? null,
+      afterTotalTicks: after?.totalTicks ?? null,
+      totalTicksDelta: before?.totalTicks != null && after?.totalTicks != null
+        ? Math.round((after.totalTicks - before.totalTicks) * 1000) / 1000
+        : null,
+      beforeOrdinal: before?.ordinal ?? null,
+      afterOrdinal: after?.ordinal ?? null,
+      turnTypeChanged: (before?.turnType ?? null) !== (after?.turnType ?? null),
+    };
+  }
+
+  function buildTurnOrderDelta(previousSnapshot, nextSnapshot) {
+    if (!previousSnapshot || !nextSnapshot) return null;
+    const previousMap = new Map((previousSnapshot.entries || []).map((entry) => [entry.unitId, entry]));
+    const nextMap = new Map((nextSnapshot.entries || []).map((entry) => [entry.unitId, entry]));
+    const added = [];
+    const removed = [];
+    const changed = [];
+
+    for (const entry of nextSnapshot.entries || []) {
+      const before = previousMap.get(entry.unitId) || null;
+      if (!before) {
+        added.push(entry);
+        continue;
+      }
+      const ticksChanged = before.ticksUntilTurn !== entry.ticksUntilTurn || before.totalTicks !== entry.totalTicks || before.turnType !== entry.turnType;
+      const orderChanged = before.ordinal !== entry.ordinal;
+      if (ticksChanged || orderChanged) {
+        const delta = normalizeTurnOrderDeltaChange(before, entry);
+        if (delta) changed.push(delta);
+      }
+    }
+
+    for (const entry of previousSnapshot.entries || []) {
+      if (!nextMap.has(entry.unitId)) removed.push(entry);
+    }
+
+    const orderBefore = (previousSnapshot.entries || []).map((entry) => entry.unitId);
+    const orderAfter = (nextSnapshot.entries || []).map((entry) => entry.unitId);
+    const orderChanged = orderBefore.length !== orderAfter.length || orderBefore.some((unitId, index) => orderAfter[index] !== unitId);
+    const activeTurnBeforeUnitId = previousSnapshot.activeTurnUnitId || null;
+    const activeTurnAfterUnitId = nextSnapshot.activeTurnUnitId || null;
+
+    return {
+      snapshotId: nextSnapshot.snapshotId,
+      previousSnapshotId: previousSnapshot.snapshotId,
+      capturedAt: nextSnapshot.capturedAt,
+      previousCapturedAt: previousSnapshot.capturedAt,
+      turnNumber: nextSnapshot.turnNumber,
+      previousTurnNumber: previousSnapshot.turnNumber,
+      source: nextSnapshot.source || null,
+      orderChanged: orderChanged || added.length > 0 || removed.length > 0 || changed.some((entry) => entry?.ticksDelta !== 0 || entry?.turnTypeChanged),
+      activeTurnChanged: activeTurnBeforeUnitId !== activeTurnAfterUnitId,
+      activeTurnBeforeUnitId,
+      activeTurnAfterUnitId,
+      added,
+      removed,
+      changed,
+      orderBefore,
+      orderAfter,
+      signatureBefore: previousSnapshot.signature,
+      signatureAfter: nextSnapshot.signature,
+    };
+  }
+
+  const TURN_ORDER_DIAGNOSTIC_FIELDS = [
+    'unitId',
+    'name',
+    'side',
+    'slot',
+    'ticksUntilTurn',
+    'totalTicks',
+    'turnType',
+    'heroId',
+    'heroClass',
+    'level',
+    'iconUrl',
+  ];
+
+  function summarizeTurnOrderEntries(entries, limit) {
+    return (Array.isArray(entries) ? entries : [])
+      .slice(0, limit == null ? 12 : limit)
+      .map((entry) => ({
+        unitId: entry.unitId || null,
+        name: entry.name || null,
+        side: entry.side || null,
+        slot: entry.slot ?? null,
+        ticksUntilTurn: entry.ticksUntilTurn ?? null,
+        totalTicks: entry.totalTicks ?? null,
+        turnType: entry.turnType ?? null,
+        ordinal: entry.ordinal ?? null,
+        heroId: entry.heroId || null,
+        heroClass: entry.heroClass || null,
+        level: entry.level ?? null,
+        iconUrl: entry.iconUrl || null,
+        source: entry.source || null,
+      }));
+  }
+
+  function buildTurnOrderFieldSummary(entries) {
+    const matched = [];
+    const rejected = [];
+    TURN_ORDER_DIAGNOSTIC_FIELDS.forEach((field) => {
+      const hasValue = (Array.isArray(entries) ? entries : []).some((entry) => entry && entry[field] != null && entry[field] !== '');
+      (hasValue ? matched : rejected).push(field);
+    });
+    return { matched, rejected };
+  }
+
+  function resolveTurnOrderSourceKind(source) {
+    const value = String(source || '').toLowerCase();
+    if (value.startsWith('runtime')) return 'runtime';
+    if (value.startsWith('network')) return 'network';
+    if (value.startsWith('modal')) return 'modal';
+    if (value.startsWith('strip') || value === 'dom') return 'strip';
+    return 'none';
+  }
+
+  function scoreTurnOrderCandidate(kind, entries, fresh) {
+    const count = Array.isArray(entries) ? entries.length : 0;
+    if (count === 0) return 0;
+    switch (kind) {
+      case 'runtime':
+        return fresh ? 0.99 : 0.95;
+      case 'network':
+        return fresh ? 0.92 : 0.58;
+      case 'modal':
+        return fresh ? 0.74 : 0.62;
+      case 'strip':
+        return fresh ? 0.7 : 0.56;
+      default:
+        return 0;
+    }
+  }
+
+  function buildTurnOrderCandidateDiagnostics({
+    kind,
+    source,
+    transport,
+    entries,
+    fresh,
+    ageMs,
+    reason,
+  }) {
+    const allEntries = Array.isArray(entries) ? entries : [];
+    const rawEntries = summarizeTurnOrderEntries(entries, 12);
+    const fieldSummary = buildTurnOrderFieldSummary(allEntries);
+    return {
+      kind,
+      source: source || null,
+      transport: transport || null,
+      count: allEntries.length,
+      fresh: !!fresh,
+      ageMs: ageMs != null ? ageMs : null,
+      confidence: scoreTurnOrderCandidate(kind, rawEntries, fresh),
+      reason: reason || null,
+      matchedFields: fieldSummary.matched,
+      rejectedFields: fieldSummary.rejected,
+      entries: rawEntries,
+    };
+  }
+
+  function buildTurnOrderDiagnostics({
+    selectedEntries,
+    turnOrderSnapshot,
+    turnOrderDelta,
+    runtimeEntries,
+    runtimeSource,
+    networkEntries,
+    networkAgeMs,
+    networkTransport,
+    stripEntries,
+    modalEntries,
+    historyCount,
+  }) {
+    const selectedSource = window.__dfkSelectorDiag.turn_order_source || null;
+    const selectedKind = resolveTurnOrderSourceKind(selectedSource);
+    const selectedList = summarizeTurnOrderEntries(selectedEntries, 12);
+    const selectedFieldSummary = buildTurnOrderFieldSummary(Array.isArray(selectedEntries) ? selectedEntries : []);
+    const runtimeSourceLabel = (runtimeEntries || []).length > 0 ? (runtimeSource || null) : null;
+    const runtimeAgeMs = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
+    const modalAgeMs = latestModalTurnOrder.capturedAt ? (Date.now() - latestModalTurnOrder.capturedAt) : null;
+    const runtimeReason = (runtimeEntries || []).length > 0
+      ? (runtimeSource === 'runtime_cached' ? 'cached runtime turn order reused' : 'runtime extractor returned rows')
+      : 'runtime extractor returned no rows';
+    const networkReason = (networkEntries || []).length > 0
+      ? (networkAgeMs != null && networkAgeMs <= TURN_ORDER_RUNTIME_TTL_MS
+        ? 'fresh network payload'
+        : 'stale network payload kept for diagnostics')
+      : 'no network payload available';
+    const stripReason = (stripEntries || []).length > 0
+      ? 'visible turn indicator strip rows'
+      : 'no visible turn indicator strip rows';
+    const modalReason = (modalEntries || []).length > 0
+      ? 'visible turn order modal rows'
+      : 'no visible turn order modal rows';
+    const runtimeCandidate = buildTurnOrderCandidateDiagnostics({
+      kind: 'runtime',
+      source: runtimeSourceLabel,
+      transport: null,
+      entries: runtimeEntries,
+      fresh: (runtimeEntries || []).length > 0,
+      ageMs: runtimeAgeMs,
+      reason: runtimeReason,
+    });
+    const networkCandidate = buildTurnOrderCandidateDiagnostics({
+      kind: 'network',
+      source: networkAgeMs != null && networkAgeMs <= TURN_ORDER_RUNTIME_TTL_MS ? 'network_fresh' : 'network',
+      transport: networkTransport || null,
+      entries: networkEntries,
+      fresh: !!(networkEntries || []).length && networkAgeMs != null && networkAgeMs <= TURN_ORDER_RUNTIME_TTL_MS,
+      ageMs: networkAgeMs,
+      reason: networkReason,
+    });
+    const stripCandidate = buildTurnOrderCandidateDiagnostics({
+      kind: 'strip',
+      source: 'strip',
+      transport: null,
+      entries: stripEntries,
+      fresh: (stripEntries || []).length > 0,
+      ageMs: (stripEntries || []).length > 0 ? 0 : null,
+      reason: stripReason,
+    });
+    const modalCandidate = buildTurnOrderCandidateDiagnostics({
+      kind: 'modal',
+      source: 'modal_text',
+      transport: null,
+      entries: modalEntries,
+      fresh: (modalEntries || []).length > 0 && modalAgeMs != null && modalAgeMs <= TURN_ORDER_RUNTIME_TTL_MS,
+      ageMs: modalAgeMs,
+      reason: modalReason,
+    });
+    const candidates = [runtimeCandidate, networkCandidate, stripCandidate, modalCandidate]
+      .filter(Boolean);
+    const selectedCandidate =
+      candidates.find((candidate) => candidate.kind === selectedKind) ||
+      candidates.find((candidate) => candidate.source === selectedSource) ||
+      null;
+    const rankingReasons = [
+      'runtime-first selection',
+      'network fallback only applies when runtime data is missing or malformed',
+      'strip and modal sources are diagnostics-only',
+    ];
+    if (selectedCandidate?.reason) rankingReasons.push(selectedCandidate.reason);
+    return {
+      snapshotId: turnOrderSnapshot?.snapshotId || null,
+      signature: turnOrderSnapshot?.signature || null,
+      capturedAt: turnOrderSnapshot?.capturedAt ?? null,
+      turnNumber: currentTurnState?.turnNumber ?? latestRuntimeTurnOrder.turnNumber ?? null,
+      selectedSource,
+      selectedKind,
+      selectedConfidence: selectedCandidate?.confidence ?? 0,
+      selectedReason: selectedCandidate?.reason || null,
+      selectedEntries: selectedList,
+      candidates,
+      rankingReasons,
+      fieldMatches: selectedFieldSummary.matched,
+      fieldRejections: selectedFieldSummary.rejected,
+      deltaSummary: turnOrderDelta ? {
+        snapshotId: turnOrderDelta.snapshotId || null,
+        previousSnapshotId: turnOrderDelta.previousSnapshotId || null,
+        capturedAt: turnOrderDelta.capturedAt ?? null,
+        previousCapturedAt: turnOrderDelta.previousCapturedAt ?? null,
+        turnNumber: turnOrderDelta.turnNumber ?? null,
+        previousTurnNumber: turnOrderDelta.previousTurnNumber ?? null,
+        orderChanged: !!turnOrderDelta.orderChanged,
+        activeTurnChanged: !!turnOrderDelta.activeTurnChanged,
+        addedCount: Array.isArray(turnOrderDelta.added) ? turnOrderDelta.added.length : 0,
+        removedCount: Array.isArray(turnOrderDelta.removed) ? turnOrderDelta.removed.length : 0,
+        changedCount: Array.isArray(turnOrderDelta.changed) ? turnOrderDelta.changed.length : 0,
+        signatureBefore: turnOrderDelta.signatureBefore || null,
+        signatureAfter: turnOrderDelta.signatureAfter || null,
+      } : null,
+      historyCount: Number.isFinite(Number(historyCount)) ? Number(historyCount) : 0,
+      liveCaptureMode: selectedKind === 'network'
+        ? 'network_fallback'
+        : selectedKind === 'runtime'
+          ? 'runtime_first'
+          : selectedKind === 'none'
+          ? 'diagnostic_only'
+          : 'diagnostic_only',
+    };
+  }
+
+  function updateTurnOrderTimeline(entries, meta) {
+    const turnNumber = Number.isFinite(Number(meta?.turnNumber)) ? Number(meta.turnNumber) : null;
+    const activeTurnUnitId = entries[0]?.unitId || null;
+    const signature = buildTurnOrderSignature(entries, turnNumber, activeTurnUnitId);
+    const snapshot = {
+      snapshotId: `${turnNumber ?? 'na'}:${meta?.capturedAt || Date.now()}`,
+      capturedAt: meta?.capturedAt || Date.now(),
+      turnNumber,
+      source: meta?.source || null,
+      signature,
+      activeTurnUnitId,
+      entries,
+    };
+
+    if (latestTurnOrderTimeline.lastSnapshot && latestTurnOrderTimeline.lastSignature === signature) {
+      return {
+        snapshot: latestTurnOrderTimeline.lastSnapshot,
+        delta: null,
+        history: latestTurnOrderTimeline.history,
+      };
+    }
+
+    const delta = buildTurnOrderDelta(latestTurnOrderTimeline.lastSnapshot, snapshot);
+    const history = [...latestTurnOrderTimeline.history, snapshot].slice(-TURN_ORDER_HISTORY_LIMIT);
+    latestTurnOrderTimeline = {
+      lastSignature: signature,
+      lastSnapshot: snapshot,
+      history,
+    };
+    return {
+      snapshot,
+      delta,
+      history,
+    };
   }
 
   window.addEventListener('pointerdown', () => {
@@ -317,14 +738,40 @@
       : {};
   }
 
+  function sameHuntId(left, right) {
+    if (!left || !right) return true;
+    return String(left).trim() === String(right).trim();
+  }
+
   function hasActiveCompanionSessionForCurrentHunt() {
     const state = getCompanionState();
-    const selectedSessionId = state.selectedCompanionSessionId || null;
-    if (!selectedSessionId) return false;
-    if (state.requiresTabRefresh) return false;
-    const huntId = state.huntId || null;
+    const selectedSessionId = state.selectedCompanionSessionId || state.selectedSessionId || null;
+    const huntId = state.huntId || state.currentHuntId || null;
     const currentHunt = currentHuntKey() || window.__dfkSessionId || null;
-    return !huntId || !currentHunt || String(huntId) === String(currentHunt);
+    let reason = 'ok';
+    if (!state || typeof state !== 'object' || Object.keys(state).length === 0) {
+      reason = 'missing_content_state';
+    } else if (!selectedSessionId) {
+      reason = 'no_selected_session';
+    } else if (state.requiresTabRefresh) {
+      reason = 'requires_tab_refresh';
+    } else if (!sameHuntId(huntId, currentHunt)) {
+      reason = 'hunt_mismatch';
+    }
+    const diagState = {
+      selectedCompanionSessionId: selectedSessionId,
+      requiresTabRefresh: !!state.requiresTabRefresh,
+      websocketStatus: state.websocketStatus || state.status || null,
+      isJoined: state.isJoined === true || state.joined === true,
+      huntId,
+      currentHunt,
+      ownedSessionCount: state.ownedSessionCount ?? null,
+      reason,
+      active: reason === 'ok',
+    };
+    window.__dfkSelectorDiag.turn_order_companion_state = diagState;
+    window.__dfkSelectorDiag.turn_order_companion_state_reason = reason;
+    return reason === 'ok';
   }
 
   function isTurnOrderCacheFresh(cache) {
@@ -340,10 +787,21 @@
     return (cache.entries || []).some((entry) => entry?.ticksUntilTurn != null);
   }
 
-  function buildPlayerTurnKey(turnNumber, activeUnit) {
+  function buildPlayerTurnIdentityKey(activeUnit) {
     if (!activeUnit) return null;
     return [
-      turnNumber ?? 'na',
+      activeUnit.slot ?? 'na',
+      normalizedName(activeUnit.name || 'player'),
+    ].join(':');
+  }
+
+  function buildPlayerTurnKey(turnNumber, activeUnit, activationCount) {
+    if (!activeUnit) return null;
+    const normalizedTurnNumber = Number.isFinite(Number(turnNumber)) && Number(turnNumber) > 0
+      ? Number(turnNumber)
+      : `player_turn_${activationCount ?? 0}`;
+    return [
+      normalizedTurnNumber,
       activeUnit.slot ?? 'na',
       normalizedName(activeUnit.name || 'player'),
     ].join(':');
@@ -1058,6 +1516,20 @@
     return null;
   }
 
+  function findTurnOrderRuntimeRoot() {
+    const buttons = findTurnIndicatorButtons();
+    if (buttons.length > 0) {
+      const button = buttons[0];
+      const candidate = button.closest?.('[class*="turn"],[class*="timeline"],[class*="battle"],[class*="panel"],[role="region"]')
+        || button.parentElement
+        || button;
+      if (candidate) return candidate;
+    }
+    const commandPanel = findCommandPanelRoot();
+    if (commandPanel) return commandPanel;
+    return document.body || document.documentElement || null;
+  }
+
   function resolveRuntimePlayerIdentity(slot, heroes, ordinal) {
     const normalizedSlot = Number.isFinite(Number(slot)) ? Number(slot) : null;
     const visibleHero = findHeroBySlot(heroes, normalizedSlot) || ((heroes || [])[ordinal] || null);
@@ -1112,13 +1584,14 @@
   }
 
   function readTurnOrderRuntime(heroes, enemies) {
-    const root = findTurnOrderModalRoot();
+    const root = findTurnOrderRuntimeRoot();
     if (!root || !window.__dfkReactRuntime?.extractTurnOrderRuntimeCached) return [];
     const runtimeResult = window.__dfkReactRuntime.extractTurnOrderRuntimeCached(root, latestRuntimeTurnOrder);
     latestRuntimeTurnOrderMetrics = runtimeResult?.metrics || null;
     if (runtimeResult?.metrics?.cacheHit) runtimeTurnOrderCacheHitCount += 1;
     if (runtimeResult?.metrics?.usedDeepFind) runtimeTurnOrderDeepFindCount += 1;
     lastRuntimeInvalidationReason = runtimeResult?.invalidationReason || null;
+    window.__dfkSelectorDiag.turn_order_runtime_anchor = runtimeResult?.metrics?.anchorSource || null;
     const runtime = runtimeResult?.runtime || null;
     if (!runtime || !Array.isArray(runtime.turns) || runtime.turns.length === 0) return [];
     const runtimeSource = runtimeResult?.metrics?.cacheHit && !runtimeResult?.metrics?.usedDeepFind && !runtimeResult?.invalidationReason
@@ -1142,11 +1615,12 @@
         source: runtimeSource,
       };
     }).filter(Boolean);
+    const sortedEntries = sortTurnOrderEntries(entries);
 
-    if (entries.length > 0) {
+    if (sortedEntries.length > 0) {
       latestRuntimeTurnOrder = {
         ...(runtimeResult?.cache || {}),
-        entries,
+        entries: sortedEntries,
         capturedAt: Date.now(),
         battleData: summarizeBattleDataForPrediction(runtime.battleData),
         turnNumber: currentTurnState?.turnNumber ?? null,
@@ -1156,7 +1630,7 @@
       };
     }
 
-    return entries;
+    return sortedEntries;
   }
 
   function readTurnOrderModal() {
@@ -1359,59 +1833,64 @@
     const runtimeEntries = readTurnOrderRuntime(heroes, enemies);
     const runtimeWasReadThisCycle = runtimeEntries.length > 0;
     const cachedRuntimeEntries = runtimeWasReadThisCycle ? runtimeEntries : getFreshRuntimeTurnOrder();
-    const stripEntries = readTurnOrderStrip(heroes, enemies);
-    const modalEntries = readTurnOrderModal();
-    const cachedModalEntries = modalEntries.length > 0 ? modalEntries : getFreshModalTurnOrder();
+    const networkEntries = sortTurnOrderEntries(Array.isArray(latestNetworkTurnOrder.entries) ? latestNetworkTurnOrder.entries : []);
+    const networkAgeMs = latestNetworkTurnOrder.capturedAt ? (Date.now() - latestNetworkTurnOrder.capturedAt) : null;
+    const networkIsFresh = networkEntries.length > 0 && networkAgeMs != null && networkAgeMs <= TURN_ORDER_RUNTIME_TTL_MS;
 
     if (cachedRuntimeEntries.length > 0) {
-      let mergedRuntimeEntries = mergeTurnOrderEntries(cachedRuntimeEntries, stripEntries);
-      if (cachedModalEntries.length > 0) {
-        mergedRuntimeEntries = mergeTurnOrderEntries(mergedRuntimeEntries, cachedModalEntries);
-      }
-      window.__dfkSelectorDiag.turn_order_source = cachedModalEntries.length > 0
-        ? 'runtime+modal'
-        : (runtimeWasReadThisCycle ? (latestRuntimeTurnOrder.source || 'runtime_fresh') : 'runtime_cached');
+      window.__dfkSelectorDiag.turn_order_source = runtimeWasReadThisCycle
+        ? (latestRuntimeTurnOrder.source || 'runtime_fresh')
+        : 'runtime_cached';
       window.__dfkSelectorDiag.turn_order_runtime_count = cachedRuntimeEntries.length;
       window.__dfkSelectorDiag.turn_order_runtime_age_ms = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
-      window.__dfkSelectorDiag.turn_order_runtime_resolved_count = mergedRuntimeEntries.filter((entry) => !/^Hero\s+\d+/i.test(entry.name || '')).length;
-      window.__dfkSelectorDiag.turn_order_runtime_unresolved_count = mergedRuntimeEntries.filter((entry) => /^Hero\s+\d+/i.test(entry.name || '')).length;
+      window.__dfkSelectorDiag.turn_order_runtime_resolved_count = cachedRuntimeEntries.filter((entry) => !/^Hero\s+\d+/i.test(entry.name || '')).length;
+      window.__dfkSelectorDiag.turn_order_runtime_unresolved_count = cachedRuntimeEntries.filter((entry) => /^Hero\s+\d+/i.test(entry.name || '')).length;
       window.__dfkSelectorDiag.runtime_turn_order_metrics = latestRuntimeTurnOrderMetrics || null;
       window.__dfkSelectorDiag.runtime_cache_hit_count = runtimeTurnOrderCacheHitCount;
       window.__dfkSelectorDiag.runtime_deep_find_count = runtimeTurnOrderDeepFindCount;
       window.__dfkSelectorDiag.last_runtime_invalidation_reason = lastRuntimeInvalidationReason || null;
-      window.__dfkSelectorDiag.turn_order_strip_count = stripEntries.length;
-      window.__dfkSelectorDiag.turn_order_modal_count = cachedModalEntries.length;
-      window.__dfkSelectorDiag.turn_order_modal_age_ms = latestModalTurnOrder.capturedAt ? (Date.now() - latestModalTurnOrder.capturedAt) : null;
-      if (mergedRuntimeEntries.length > 0) markTurnOrderCapturedForHunt();
-      return mergedRuntimeEntries;
+      window.__dfkSelectorDiag.turn_order_transport = null;
+      window.__dfkSelectorDiag.turn_order_strip_count = 0;
+      window.__dfkSelectorDiag.turn_order_modal_count = 0;
+      window.__dfkSelectorDiag.turn_order_modal_age_ms = 0;
+      window.__dfkSelectorDiag.turn_order_network_count = networkEntries.length;
+      window.__dfkSelectorDiag.turn_order_network_age_ms = networkAgeMs;
+      if (cachedRuntimeEntries.length > 0) markTurnOrderCapturedForHunt();
+      return cachedRuntimeEntries;
     }
 
-    const recentNetworkEntries = Array.isArray(latestNetworkTurnOrder.entries) ? latestNetworkTurnOrder.entries : [];
-    const networkIsFresh = recentNetworkEntries.length > 0 && (Date.now() - (latestNetworkTurnOrder.capturedAt || 0)) < 30000;
     if (networkIsFresh) {
-      window.__dfkSelectorDiag.turn_order_source = 'network';
+      window.__dfkSelectorDiag.turn_order_source = 'network_fresh';
       window.__dfkSelectorDiag.turn_order_transport = latestNetworkTurnOrder.transport || null;
-      if (recentNetworkEntries.length > 0) markTurnOrderCapturedForHunt();
-      return recentNetworkEntries.slice(0, 12);
+      window.__dfkSelectorDiag.turn_order_runtime_count = cachedRuntimeEntries.length;
+      window.__dfkSelectorDiag.turn_order_runtime_age_ms = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
+      window.__dfkSelectorDiag.runtime_turn_order_metrics = latestRuntimeTurnOrderMetrics || null;
+      window.__dfkSelectorDiag.runtime_cache_hit_count = runtimeTurnOrderCacheHitCount;
+      window.__dfkSelectorDiag.runtime_deep_find_count = runtimeTurnOrderDeepFindCount;
+      window.__dfkSelectorDiag.last_runtime_invalidation_reason = lastRuntimeInvalidationReason || null;
+      window.__dfkSelectorDiag.turn_order_strip_count = 0;
+      window.__dfkSelectorDiag.turn_order_modal_count = 0;
+      window.__dfkSelectorDiag.turn_order_modal_age_ms = 0;
+      window.__dfkSelectorDiag.turn_order_network_count = networkEntries.length;
+      window.__dfkSelectorDiag.turn_order_network_age_ms = networkAgeMs;
+      markTurnOrderCapturedForHunt();
+      return networkEntries.slice(0, 12);
     }
 
-    const mergedEntries = mergeTurnOrderEntries(stripEntries, cachedModalEntries);
-    window.__dfkSelectorDiag.turn_order_source =
-      cachedModalEntries.length > 0 && stripEntries.length > 0 ? 'modal_text'
-      : cachedModalEntries.length > 0 ? 'modal_text'
-      : stripEntries.length > 0 ? 'strip'
-      : 'none';
+    window.__dfkSelectorDiag.turn_order_source = 'none';
     window.__dfkSelectorDiag.turn_order_runtime_count = cachedRuntimeEntries.length;
     window.__dfkSelectorDiag.turn_order_runtime_age_ms = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
     window.__dfkSelectorDiag.runtime_turn_order_metrics = latestRuntimeTurnOrderMetrics || null;
     window.__dfkSelectorDiag.runtime_cache_hit_count = runtimeTurnOrderCacheHitCount;
     window.__dfkSelectorDiag.runtime_deep_find_count = runtimeTurnOrderDeepFindCount;
     window.__dfkSelectorDiag.last_runtime_invalidation_reason = lastRuntimeInvalidationReason || null;
-    window.__dfkSelectorDiag.turn_order_strip_count = stripEntries.length;
-    window.__dfkSelectorDiag.turn_order_modal_count = cachedModalEntries.length;
-    window.__dfkSelectorDiag.turn_order_modal_age_ms = latestModalTurnOrder.capturedAt ? (Date.now() - latestModalTurnOrder.capturedAt) : null;
-    if (cachedModalEntries.length > 0) markTurnOrderCapturedForHunt();
-    return mergedEntries;
+    window.__dfkSelectorDiag.turn_order_transport = null;
+    window.__dfkSelectorDiag.turn_order_strip_count = 0;
+    window.__dfkSelectorDiag.turn_order_modal_count = 0;
+    window.__dfkSelectorDiag.turn_order_modal_age_ms = 0;
+    window.__dfkSelectorDiag.turn_order_network_count = 0;
+    window.__dfkSelectorDiag.turn_order_network_age_ms = null;
+    return [];
   }
 
   function isVisible(el) {
@@ -1456,7 +1935,8 @@
     if (turnOrderPrimeInFlight) return;
     if (document.visibilityState === 'hidden') return;
     if (!hasActiveCompanionSessionForCurrentHunt()) {
-      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'inactive_companion_session';
+      const companionReason = window.__dfkSelectorDiag.turn_order_companion_state_reason || 'unknown';
+      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = `inactive_companion_session:${companionReason}`;
       return;
     }
     if (!currentTurnState?.isPlayerTurnActive || !currentTurnState?.playerTurnKey) return;
@@ -1540,6 +2020,26 @@
     const heroes = Object.values(unitMap).filter(u => u.side === 'player');
     const enemies = Object.values(unitMap).filter(u => u.side === 'enemy');
     const turnOrder = readTurnOrder(heroes, enemies);
+    const stripTurnOrder = readTurnOrderStrip(heroes, enemies);
+    const modalRoot = findTurnOrderModalRoot();
+    const modalTurnOrder = modalRoot ? readTurnOrderModal() : getFreshModalTurnOrder();
+    const runtimeTurnOrder = getFreshRuntimeTurnOrder();
+    const networkTurnOrder = sortTurnOrderEntries(Array.isArray(latestNetworkTurnOrder.entries) ? latestNetworkTurnOrder.entries : []);
+    const networkAgeMs = latestNetworkTurnOrder.capturedAt ? (Date.now() - latestNetworkTurnOrder.capturedAt) : null;
+    const turnOrderTimeline = turnOrder.length > 0
+      ? updateTurnOrderTimeline(turnOrder, {
+          turnNumber: currentTurnState.turnNumber ?? latestRuntimeTurnOrder.turnNumber ?? null,
+          capturedAt: Date.now(),
+          source: window.__dfkSelectorDiag.turn_order_source || latestRuntimeTurnOrder.source || latestNetworkTurnOrder.transport || null,
+        })
+      : {
+          snapshot: latestTurnOrderTimeline.lastSnapshot,
+          delta: null,
+          history: latestTurnOrderTimeline.history,
+        };
+    const turnOrderDelta = turnOrderTimeline.delta;
+    const turnOrderHistory = turnOrderTimeline.history;
+    const turnOrderSnapshot = turnOrderTimeline.snapshot;
     const activeUnit = readActiveUnit(commandPanel, heroes, turnOrder);
     const legalActions = readLegalActions(commandPanel);
     const selectedTarget = readSelectedTarget();
@@ -1548,11 +2048,24 @@
     const enemyEffectsByName = readEnemyStatusEffects();
     const panelHeroName = inferHeroNameFromPanel(commandPanel);
     const isPlayerTurnActive = !!(commandPanel && isVisible(commandPanel) && (panelHeroName || legalActions.length > 0 || legalConsumables.length > 0));
-    const playerTurnKey = isPlayerTurnActive
-      ? buildPlayerTurnKey(currentTurnState.turnNumber, activeUnit || { name: panelHeroName || currentTurnState.activeUnit, slot: activeUnit?.slot ?? currentTurnState.activeHeroSlot })
+    const activeTurnIdentity = activeUnit || {
+      name: panelHeroName || currentTurnState.activeUnit,
+      slot: activeUnit?.slot ?? currentTurnState.activeHeroSlot,
+    };
+    const playerTurnIdentityKey = isPlayerTurnActive
+      ? buildPlayerTurnIdentityKey(activeTurnIdentity)
       : null;
     const playerTurnJustActivated = isPlayerTurnActive &&
-      (!currentTurnState.isPlayerTurnActive || playerTurnKey !== currentTurnState.playerTurnKey);
+      (!currentTurnState.isPlayerTurnActive || playerTurnIdentityKey !== currentTurnState.playerTurnIdentityKey);
+    const nextPlayerTurnActivationCount = playerTurnJustActivated
+      ? playerTurnActivationCount + 1
+      : playerTurnActivationCount;
+    const playerTurnKey = isPlayerTurnActive
+      ? buildPlayerTurnKey(currentTurnState.turnNumber, activeTurnIdentity, nextPlayerTurnActivationCount)
+      : null;
+    if (playerTurnJustActivated) {
+      playerTurnActivationCount = nextPlayerTurnActivationCount;
+    }
 
     enemies.forEach((enemy) => {
       const effects = enemyEffectsByName[normalizedName(enemy.name)] || [];
@@ -1573,8 +2086,15 @@
       enemies,
       battleBudgetRemaining,
       turnOrder,
+      turnOrderHistory,
+      turnOrderDelta,
+      turnOrderSource: window.__dfkSelectorDiag.turn_order_source || latestRuntimeTurnOrder.source || latestNetworkTurnOrder.transport || null,
+      turnOrderSnapshotId: turnOrderSnapshot?.snapshotId || null,
+      turnOrderSignature: turnOrderSnapshot?.signature || null,
+      turnOrderCapturedAt: turnOrderSnapshot?.capturedAt ?? null,
       isPlayerTurnActive,
       playerTurnKey,
+      playerTurnIdentityKey,
       playerTurnJustActivated,
       runtimeBattleData: latestRuntimeTurnOrder.battleData || null,
       predictionInputs: latestRuntimeTurnOrder.battleData ? {
@@ -1592,9 +2112,45 @@
       latestRuntimeTurnOrder.playerTurnKey = currentTurnState.playerTurnKey;
     }
 
-      return {
-        type: 'turn_snapshot',
-        ...currentTurnState,
+    const turnOrderDiagnostics = buildTurnOrderDiagnostics({
+      selectedEntries: turnOrder,
+      turnOrderSnapshot,
+      turnOrderDelta,
+      runtimeEntries: runtimeTurnOrder,
+      runtimeSource: latestRuntimeTurnOrder.source || null,
+      networkEntries: networkTurnOrder,
+      networkAgeMs,
+      networkTransport: latestNetworkTurnOrder.transport || null,
+      stripEntries: stripTurnOrder,
+      modalEntries: modalTurnOrder,
+      historyCount: turnOrderHistory.length,
+    });
+
+    window.__dfkSelectorDiag.turn_order_runtime_count = runtimeTurnOrder.length;
+    window.__dfkSelectorDiag.turn_order_runtime_age_ms = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
+    window.__dfkSelectorDiag.turn_order_runtime_resolved_count = runtimeTurnOrder.filter((entry) => !/^Hero\s+\d+/i.test(entry.name || '')).length;
+    window.__dfkSelectorDiag.turn_order_runtime_unresolved_count = runtimeTurnOrder.filter((entry) => /^Hero\s+\d+/i.test(entry.name || '')).length;
+    window.__dfkSelectorDiag.runtime_turn_order_metrics = latestRuntimeTurnOrderMetrics || null;
+    window.__dfkSelectorDiag.runtime_cache_hit_count = runtimeTurnOrderCacheHitCount;
+    window.__dfkSelectorDiag.runtime_deep_find_count = runtimeTurnOrderDeepFindCount;
+    window.__dfkSelectorDiag.last_runtime_invalidation_reason = lastRuntimeInvalidationReason || null;
+    window.__dfkSelectorDiag.turn_order_transport = turnOrderDiagnostics.selectedKind === 'network'
+      ? latestNetworkTurnOrder.transport || null
+      : null;
+    window.__dfkSelectorDiag.turn_order_strip_count = stripTurnOrder.length;
+    window.__dfkSelectorDiag.turn_order_modal_count = modalTurnOrder.length;
+    window.__dfkSelectorDiag.turn_order_modal_age_ms = latestModalTurnOrder.capturedAt ? (Date.now() - latestModalTurnOrder.capturedAt) : null;
+    window.__dfkSelectorDiag.turn_order_network_count = networkTurnOrder.length;
+    window.__dfkSelectorDiag.turn_order_network_age_ms = networkAgeMs;
+    window.__dfkSelectorDiag.turn_order_diagnostics = turnOrderDiagnostics;
+    currentTurnState = {
+      ...currentTurnState,
+      turnOrderDiagnostics,
+    };
+
+    return {
+      type: 'turn_snapshot',
+      ...currentTurnState,
         _debug: {
           commandPanel: lastCommandPanelDebug,
           activePanelHeroName: window.__dfkSelectorDiag.active_panel_hero_name || null,
@@ -1603,26 +2159,38 @@
           consumableIconUrls: (legalConsumables || []).map((item) => item.iconUrl).filter(Boolean),
           turnOrder: {
             source: window.__dfkSelectorDiag.turn_order_source || null,
-            runtimeCount: window.__dfkSelectorDiag.turn_order_runtime_count ?? null,
-            runtimeAgeMs: window.__dfkSelectorDiag.turn_order_runtime_age_ms ?? null,
-            resolvedCount: window.__dfkSelectorDiag.turn_order_runtime_resolved_count ?? null,
-            unresolvedCount: window.__dfkSelectorDiag.turn_order_runtime_unresolved_count ?? null,
+            selectedSource: turnOrderDiagnostics.selectedSource || null,
+            selectedKind: turnOrderDiagnostics.selectedKind || null,
+            selectedConfidence: turnOrderDiagnostics.selectedConfidence ?? null,
+            runtimeCount: turnOrderDiagnostics.candidates.find((candidate) => candidate.kind === 'runtime')?.count ?? null,
+            runtimeAgeMs: turnOrderDiagnostics.candidates.find((candidate) => candidate.kind === 'runtime')?.ageMs ?? null,
+            resolvedCount: turnOrderDiagnostics.candidates.find((candidate) => candidate.kind === 'runtime')?.entries.filter((entry) => !/^Hero\s+\d+/i.test(entry.name || '')).length ?? null,
+            unresolvedCount: turnOrderDiagnostics.candidates.find((candidate) => candidate.kind === 'runtime')?.entries.filter((entry) => /^Hero\s+\d+/i.test(entry.name || '')).length ?? null,
             runtimeMetrics: window.__dfkSelectorDiag.runtime_turn_order_metrics || null,
             runtimeCacheHitCount: window.__dfkSelectorDiag.runtime_cache_hit_count ?? null,
             runtimeDeepFindCount: window.__dfkSelectorDiag.runtime_deep_find_count ?? null,
             lastRuntimeInvalidationReason: window.__dfkSelectorDiag.last_runtime_invalidation_reason || null,
-            stripCount: window.__dfkSelectorDiag.turn_order_strip_count ?? null,
-            modalCount: window.__dfkSelectorDiag.turn_order_modal_count ?? null,
-            modalAgeMs: window.__dfkSelectorDiag.turn_order_modal_age_ms ?? null,
-            networkCount: window.__dfkSelectorDiag.turn_order_network_count ?? null,
-            transport: window.__dfkSelectorDiag.turn_order_transport || null,
+            runtimeAnchor: window.__dfkSelectorDiag.turn_order_runtime_anchor || null,
+            stripCount: turnOrderDiagnostics.candidates.find((candidate) => candidate.kind === 'strip')?.count ?? null,
+            modalCount: turnOrderDiagnostics.candidates.find((candidate) => candidate.kind === 'modal')?.count ?? null,
+            modalAgeMs: turnOrderDiagnostics.candidates.find((candidate) => candidate.kind === 'modal')?.ageMs ?? null,
+            networkCount: turnOrderDiagnostics.candidates.find((candidate) => candidate.kind === 'network')?.count ?? null,
+            transport: turnOrderDiagnostics.selectedKind === 'network' ? latestNetworkTurnOrder.transport || null : null,
             autoPrimeAt: window.__dfkSelectorDiag.turn_order_auto_prime_at || null,
             autoPrimeCount: window.__dfkSelectorDiag.turn_order_auto_prime_count ?? null,
             autoPrimeSkipped: window.__dfkSelectorDiag.turn_order_auto_prime_skipped || null,
             playerTurnRefreshTriggered: window.__dfkSelectorDiag.player_turn_refresh_triggered || null,
+            companionState: window.__dfkSelectorDiag.turn_order_companion_state || null,
+            historyCount: turnOrderHistory.length,
+            delta: summarizeTurnOrderDelta(turnOrderDelta),
+            currentSnapshotId: turnOrderSnapshot?.snapshotId || null,
+            currentSignature: turnOrderSnapshot?.signature || null,
+            fieldMatches: turnOrderDiagnostics.fieldMatches || [],
+            fieldRejections: turnOrderDiagnostics.fieldRejections || [],
           },
           runtimeTurnOrderSample: (latestRuntimeTurnOrder.entries || []).slice(0, 6),
           runtimeBattleDataSample: latestRuntimeTurnOrder.battleData || null,
+          turnOrderDiagnostics,
         },
       };
     }
@@ -1630,10 +2198,6 @@
   function emitSnapshot() {
     const snapshot = buildTurnSnapshot();
     window.__dfkEmitEvent('turn_snapshot', snapshot);
-    const hasTurnOrderTicks = (snapshot.turnOrder || []).some((entry) => entry.ticksUntilTurn != null);
-    if (!hasTurnOrderTicks) {
-      tryAutoPrimeTurnOrder();
-    }
     updateDiagStatusLine();
   }
 
@@ -1821,6 +2385,7 @@
     };
     window.__dfkSelectorDiag.turn_order_network_last_seen = latestNetworkTurnOrder.capturedAt;
     window.__dfkSelectorDiag.turn_order_network_count = entries.length;
+    window.__dfkSelectorDiag.turn_order_transport = latestNetworkTurnOrder.transport || null;
     emitSnapshot();
   });
 

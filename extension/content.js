@@ -33,6 +33,8 @@
     websocketStatus: null,
     isJoined: false,
     huntId: null,
+    ownedSessionCount: 0,
+    lastUpdatedAt: null,
   };
 
   window.__dfkSessionId = null;
@@ -115,13 +117,32 @@
   }
 
   function applyCompanionState(state) {
+    const nextSelectedSessionId =
+      state?.selectedCompanionSessionId ??
+      state?.selectedSessionId ??
+      companionState.selectedCompanionSessionId ??
+      null;
+    const nextRequiresTabRefresh =
+      typeof state?.requiresTabRefresh === 'boolean'
+        ? state.requiresTabRefresh
+        : companionState.requiresTabRefresh;
+    const nextHuntId =
+      state?.huntId ||
+      state?.currentHuntId ||
+      companionState.huntId ||
+      sessionHuntId ||
+      null;
     companionState = {
       ...companionState,
-      selectedCompanionSessionId: state?.selectedCompanionSessionId || null,
-      requiresTabRefresh: !!state?.requiresTabRefresh,
-      websocketStatus: state?.status || state?.websocketStatus || null,
-      isJoined: state?.isJoined === true || state?.joined === true,
-      huntId: state?.huntId || null,
+      selectedCompanionSessionId: nextSelectedSessionId,
+      requiresTabRefresh: nextRequiresTabRefresh,
+      websocketStatus: state?.status || state?.websocketStatus || companionState.websocketStatus || null,
+      isJoined: state?.isJoined === true || state?.joined === true || companionState.isJoined === true,
+      huntId: nextHuntId,
+      ownedSessionCount: Array.isArray(state?.ownedCompanionSessions)
+        ? state.ownedCompanionSessions.length
+        : (Array.isArray(state?.ownedSessions) ? state.ownedSessions.length : companionState.ownedSessionCount),
+      lastUpdatedAt: Date.now(),
     };
     window.__dfkCompanionState = { ...companionState };
   }
@@ -479,6 +500,9 @@
         battleBudgetRemaining: turnState.battleBudgetRemaining ?? null,
       },
       turnOrder: turnState.turnOrder || [],
+      turnOrderHistory: turnState.turnOrderHistory || [],
+      turnOrderDelta: turnState.turnOrderDelta || null,
+      turnOrderDiagnostics: turnState.turnOrderDiagnostics || null,
       battleLogEntries: battleLogEntry ? [battleLogEntry] : [],
       heroDetail: heroDetail ? {
         unitId: heroDetail.name ? buildUnitId('player', turnState.activeHeroSlot, heroDetail.name) : null,
@@ -901,9 +925,10 @@
 
     window.__dfkDetectSession();
 
-    safeStorageGet(['debugMode', 'sessionToken', 'hostUrl'], (result) => {
+    safeStorageGet(['debugMode', 'sessionToken', 'hostUrl', 'selectedCompanionSessionId', 'requiresTabRefresh', 'currentHuntId', 'ownedCompanionSessions'], (result) => {
       debugMode = !!result.debugMode;
       window.__dfkDebugMode = debugMode;
+      applyCompanionState(result || {});
 
       const urlDetection = detectFromUrl(window.location.href);
       const wallet = detectWalletFromPage();
@@ -919,6 +944,14 @@
     getRuntimeStatus().then((status) => {
       if (status) applyCompanionState(status);
     });
+
+    window.setTimeout(() => {
+      if (!companionState.selectedCompanionSessionId) {
+        getRuntimeStatus().then((status) => {
+          if (status) applyCompanionState(status);
+        });
+      }
+    }, 1500);
 
     installSpaHooks();
 

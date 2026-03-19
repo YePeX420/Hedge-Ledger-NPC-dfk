@@ -154,6 +154,85 @@ interface CombatFrame {
     battleBudgetRemaining: number | null;
   };
   turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; totalTicks?: number | null; ordinal: number; heroId?: string | null; heroClass?: string | null; level?: number | null; iconUrl?: string | null; source?: string | null }>;
+  turnOrderHistory?: Array<{ snapshotId: string; capturedAt: number; turnNumber: number | null; source: string | null; signature: string; activeTurnUnitId: string | null; entries: CombatFrame['turnOrder'] }>;
+  turnOrderDelta?: {
+    snapshotId: string;
+    previousSnapshotId: string | null;
+    capturedAt: number;
+    previousCapturedAt: number | null;
+    turnNumber: number | null;
+    previousTurnNumber: number | null;
+    source: string | null;
+    orderChanged: boolean;
+    activeTurnChanged: boolean;
+    activeTurnBeforeUnitId: string | null;
+    activeTurnAfterUnitId: string | null;
+    added: CombatFrame['turnOrder'];
+    removed: CombatFrame['turnOrder'];
+    changed: Array<{
+      unitId: string;
+      name: string;
+      side: 'player' | 'enemy';
+      slot: number | null;
+      beforeTicksUntilTurn: number | null;
+      afterTicksUntilTurn: number | null;
+      ticksDelta: number | null;
+      beforeTotalTicks: number | null;
+      afterTotalTicks: number | null;
+      totalTicksDelta: number | null;
+      beforeOrdinal: number | null;
+      afterOrdinal: number | null;
+      turnTypeChanged: boolean;
+    }>;
+    orderBefore: string[];
+    orderAfter: string[];
+    signatureBefore: string | null;
+    signatureAfter: string;
+  } | null;
+  turnOrderDiagnostics?: {
+    snapshotId: string | null;
+    signature: string | null;
+    capturedAt: number | null;
+    turnNumber: number | null;
+    selectedSource: string | null;
+    selectedKind: 'runtime' | 'network' | 'modal' | 'strip' | 'none';
+    selectedConfidence: number;
+    selectedReason: string | null;
+    selectedEntries: CombatFrame['turnOrder'];
+    candidates: Array<{
+      kind: 'runtime' | 'network' | 'modal' | 'strip' | 'none';
+      source: string | null;
+      transport: string | null;
+      count: number;
+      fresh: boolean;
+      ageMs: number | null;
+      confidence: number;
+      reason: string | null;
+      matchedFields: string[];
+      rejectedFields: string[];
+      entries: CombatFrame['turnOrder'];
+    }>;
+    rankingReasons: string[];
+    fieldMatches: string[];
+    fieldRejections: string[];
+    deltaSummary: {
+      snapshotId: string | null;
+      previousSnapshotId: string | null;
+      capturedAt: number | null;
+      previousCapturedAt: number | null;
+      turnNumber: number | null;
+      previousTurnNumber: number | null;
+      orderChanged: boolean;
+      activeTurnChanged: boolean;
+      addedCount: number;
+      removedCount: number;
+      changedCount: number;
+      signatureBefore: string | null;
+      signatureAfter: string | null;
+    } | null;
+    historyCount: number;
+    liveCaptureMode: 'runtime_first' | 'network_fallback' | 'diagnostic_only';
+  } | null;
   battleLogEntries: Array<{ turnNumber: number; actorName: string | null; ability: string | null; outcomes: string[]; rawText?: string | null }>;
   heroDetail: HeroDetailData | null;
   predictionInputs?: Record<string, unknown> | null;
@@ -164,6 +243,12 @@ interface CombatFrame {
     runtimeBattleData?: Record<string, unknown> | null;
   };
 }
+
+type TurnOrderEntry = CombatFrame['turnOrder'][number];
+type TurnOrderHistoryEntry = NonNullable<CombatFrame['turnOrderHistory']>[number];
+type TurnOrderDiagnostics = NonNullable<CombatFrame['turnOrderDiagnostics']>;
+type TurnOrderDiagnosticsCandidate = TurnOrderDiagnostics['candidates'][number];
+type TurnOrderDiagnosticsDeltaSummary = NonNullable<TurnOrderDiagnostics['deltaSummary']>;
 
 interface SessionData {
   id: number;
@@ -610,6 +695,10 @@ function mergeCombatFrames(
         };
       })
     : prevTurnOrder;
+  const mergedTurnOrderHistory = (next.turnOrderHistory && next.turnOrderHistory.length > 0)
+    ? next.turnOrderHistory
+    : (prev.turnOrderHistory || []);
+  const mergedTurnOrderDiagnostics = next.turnOrderDiagnostics || prev.turnOrderDiagnostics || null;
   const mergedCombatants = (next.combatants || []).map((unit) => {
     const prevUnit = (prev.combatants || []).find((candidate) => candidate.unitId === unit.unitId);
     return {
@@ -627,6 +716,9 @@ function mergeCombatFrames(
     ...next,
     combatants: mergedCombatants,
     turnOrder: mergedTurnOrder,
+    turnOrderHistory: mergedTurnOrderHistory,
+    turnOrderDelta: next.turnOrderDelta ?? prev.turnOrderDelta ?? null,
+    turnOrderDiagnostics: mergedTurnOrderDiagnostics,
     predictionInputs: next.predictionInputs || prev.predictionInputs || null,
     captureMeta: {
       ...(prev.captureMeta || {}),
@@ -634,6 +726,121 @@ function mergeCombatFrames(
       runtimeBattleData: next.captureMeta?.runtimeBattleData || prev.captureMeta?.runtimeBattleData || null,
     },
   };
+}
+
+function compareTurnOrderSequences(previous: TurnOrderEntry[] | null | undefined, next: TurnOrderEntry[]) {
+  const previousRows = Array.isArray(previous) ? previous : [];
+  const nextRows = Array.isArray(next) ? next : [];
+  const previousMap = new Map(previousRows.map((entry) => [entry.unitId, entry] as const));
+  const nextMap = new Map(nextRows.map((entry) => [entry.unitId, entry] as const));
+  const added = nextRows.filter((entry) => !previousMap.has(entry.unitId));
+  const removed = previousRows.filter((entry) => !nextMap.has(entry.unitId));
+  const changed = nextRows.map((entry) => {
+    const before = previousMap.get(entry.unitId);
+    if (!before) return null;
+    const beforeTicks = before.ticksUntilTurn ?? null;
+    const afterTicks = entry.ticksUntilTurn ?? null;
+    const beforeTotalTicks = before.totalTicks ?? null;
+    const afterTotalTicks = entry.totalTicks ?? null;
+    const beforeOrdinal = before.ordinal ?? null;
+    const afterOrdinal = entry.ordinal ?? null;
+    const turnTypeChanged = (before.turnType ?? null) !== (entry.turnType ?? null);
+    const ticksChanged = beforeTicks !== afterTicks;
+    const totalTicksChanged = beforeTotalTicks !== afterTotalTicks;
+    const ordinalChanged = beforeOrdinal !== afterOrdinal;
+    if (!ticksChanged && !totalTicksChanged && !ordinalChanged && !turnTypeChanged) return null;
+    return {
+      unitId: entry.unitId,
+      name: entry.name,
+      side: entry.side,
+      slot: entry.slot,
+      beforeTicksUntilTurn: beforeTicks,
+      afterTicksUntilTurn: afterTicks,
+      ticksDelta: beforeTicks != null && afterTicks != null ? Math.round((afterTicks - beforeTicks) * 1000) / 1000 : null,
+      beforeTotalTicks,
+      afterTotalTicks,
+      totalTicksDelta: beforeTotalTicks != null && afterTotalTicks != null
+        ? Math.round((afterTotalTicks - beforeTotalTicks) * 1000) / 1000
+        : null,
+      beforeOrdinal,
+      afterOrdinal,
+      turnTypeChanged,
+    };
+  }).filter(Boolean) as Array<{
+    unitId: string;
+    name: string;
+    side: 'player' | 'enemy';
+    slot: number | null;
+    beforeTicksUntilTurn: number | null;
+    afterTicksUntilTurn: number | null;
+    ticksDelta: number | null;
+    beforeTotalTicks: number | null;
+    afterTotalTicks: number | null;
+    totalTicksDelta: number | null;
+    beforeOrdinal: number | null;
+    afterOrdinal: number | null;
+    turnTypeChanged: boolean;
+  }>;
+  const orderBefore = previousRows.map((entry) => entry.unitId);
+  const orderAfter = nextRows.map((entry) => entry.unitId);
+  const orderChanged = orderBefore.length !== orderAfter.length || orderBefore.some((unitId, index) => orderAfter[index] !== unitId);
+  return {
+    orderChanged,
+    added,
+    removed,
+    changed,
+    orderBefore,
+    orderAfter,
+  };
+}
+
+function formatTurnOrderSourceLabel(kind: TurnOrderDiagnostics['selectedKind'] | null | undefined) {
+  switch (kind) {
+    case 'runtime':
+      return 'Runtime';
+    case 'network':
+      return 'Network';
+    case 'modal':
+      return 'Modal';
+    case 'strip':
+      return 'Strip';
+    default:
+      return 'None';
+  }
+}
+
+function getTurnOrderSourceKindFromValue(value: string | null | undefined): TurnOrderDiagnostics['selectedKind'] {
+  const text = String(value || '').toLowerCase();
+  if (text.startsWith('runtime')) return 'runtime';
+  if (text.startsWith('network')) return 'network';
+  if (text.startsWith('modal')) return 'modal';
+  if (text.startsWith('strip') || text === 'dom') return 'strip';
+  return 'none';
+}
+
+function formatTurnOrderConfidence(confidence: number | null | undefined) {
+  if (confidence == null || Number.isNaN(confidence)) return '0%';
+  return `${Math.round(confidence * 100)}%`;
+}
+
+function formatTurnOrderAge(ageMs: number | null | undefined) {
+  if (ageMs == null || Number.isNaN(ageMs)) return 'n/a';
+  if (ageMs < 1000) return `${Math.max(0, Math.round(ageMs))}ms`;
+  return `${(ageMs / 1000).toFixed(ageMs >= 10000 ? 0 : 1)}s`;
+}
+
+function formatTurnOrderTickValue(value: number | null | undefined) {
+  if (value == null || Number.isNaN(value)) return 'n/a';
+  return Number(value).toFixed(3).replace(/\.?0+$/, '');
+}
+
+function formatTurnOrderSequence(entries: TurnOrderEntry[] | null | undefined) {
+  const rows = Array.isArray(entries) ? entries : [];
+  if (rows.length === 0) return 'No entries';
+  return rows.map((entry) => {
+    const tickLabel = entry.ticksUntilTurn != null ? formatTurnOrderTickValue(entry.ticksUntilTurn) : 'order';
+    return `${formatCombatName(entry.name)} (${tickLabel})`;
+  }).join(' -> ');
 }
 
 function getSyncIssues(firebaseState: FirebaseBattleState | undefined, domActionState: DomActionState): string[] {
@@ -1419,10 +1626,45 @@ function TurnOrderPanel({
   heroes: HeroSnapshot[];
 }) {
   const rows = combatFrame?.turnOrder || [];
+  const diagnostics = combatFrame?.turnOrderDiagnostics || null;
+  const selectedSourceLabel = diagnostics ? formatTurnOrderSourceLabel(diagnostics.selectedKind) : null;
+  const deltaSummary = diagnostics?.deltaSummary || null;
   return (
     <Card className="h-full">
       <CardContent className="p-4 h-full flex flex-col">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Turn Order</p>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Turn Order</p>
+          {diagnostics && (
+            <div className="flex items-center gap-1.5">
+              <Badge variant="outline" className="text-[9px] font-mono">
+                {selectedSourceLabel}
+              </Badge>
+              <Badge variant="secondary" className="text-[9px] font-mono">
+                {formatTurnOrderConfidence(diagnostics.selectedConfidence)}
+              </Badge>
+            </div>
+          )}
+        </div>
+        {diagnostics && (
+          <div className="grid gap-2 md:grid-cols-2 mb-3">
+            <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2 text-[10px]">
+              <p className="font-semibold uppercase tracking-wide text-muted-foreground">Selected Source</p>
+              <p className="font-mono break-all">{diagnostics.selectedSource || 'none'}</p>
+            </div>
+            <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2 text-[10px]">
+              <p className="font-semibold uppercase tracking-wide text-muted-foreground">Delta Summary</p>
+              {deltaSummary ? (
+                <p className="font-mono">
+                  {deltaSummary.orderChanged ? 'order changed' : 'order stable'}
+                  {' · '}
+                  +{deltaSummary.addedCount} / -{deltaSummary.removedCount} / ~{deltaSummary.changedCount}
+                </p>
+              ) : (
+                <p className="font-mono text-muted-foreground">No delta captured</p>
+              )}
+            </div>
+          </div>
+        )}
         <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
           {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
           {rows.map((row) => {
@@ -1472,6 +1714,213 @@ function TurnOrderPanel({
             </div>
           )})}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TurnOrderDiagnosticsPanel({
+  combatFrame,
+}: {
+  combatFrame: CombatFrame | null;
+}) {
+  const diagnostics = combatFrame?.turnOrderDiagnostics || null;
+  const history = combatFrame?.turnOrderHistory || [];
+  const currentDelta = combatFrame?.turnOrderDelta || null;
+  const candidates = diagnostics?.candidates || [];
+  const recentHistory = history.slice(-6);
+
+  return (
+    <Card className="h-full xl:col-span-2">
+      <CardContent className="p-4 h-full flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+            <Activity className="w-3.5 h-3.5" /> Turn Diagnostics
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline" className="text-[9px] font-mono">
+              {diagnostics?.selectedKind ? formatTurnOrderSourceLabel(diagnostics.selectedKind) : 'No source'}
+            </Badge>
+            <Badge variant="secondary" className="text-[9px] font-mono">
+              {diagnostics ? formatTurnOrderConfidence(diagnostics.selectedConfidence) : '0%'}
+            </Badge>
+            <Badge variant="outline" className="text-[9px] font-mono">
+              {history.length} snapshot{history.length === 1 ? '' : 's'}
+            </Badge>
+          </div>
+        </div>
+
+        {!diagnostics ? (
+          <p className="text-xs text-muted-foreground text-center py-4">
+            Diagnostics have not been attached to the current frame yet.
+          </p>
+        ) : (
+          <>
+            <div className="grid gap-2 md:grid-cols-3 text-[10px]">
+              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2">
+                <p className="font-semibold uppercase tracking-wide text-muted-foreground">Selected Source</p>
+                <p className="font-mono break-all">{diagnostics.selectedSource || 'none'}</p>
+              </div>
+              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2">
+                <p className="font-semibold uppercase tracking-wide text-muted-foreground">Capture Mode</p>
+                <p className="font-mono">{diagnostics.liveCaptureMode.replace(/_/g, ' ')}</p>
+              </div>
+              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-2">
+                <p className="font-semibold uppercase tracking-wide text-muted-foreground">Delta</p>
+                {diagnostics.deltaSummary ? (
+                  <p className="font-mono">
+                    {diagnostics.deltaSummary.orderChanged ? 'changed' : 'stable'}
+                    {' · '}
+                    +{diagnostics.deltaSummary.addedCount} / -{diagnostics.deltaSummary.removedCount} / ~{diagnostics.deltaSummary.changedCount}
+                  </p>
+                ) : (
+                  <p className="font-mono text-muted-foreground">No delta summary</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3 text-[10px]">
+              <p className="font-semibold uppercase tracking-wide text-muted-foreground mb-2">Ranking Reasons</p>
+              <div className="flex flex-wrap gap-1">
+                {diagnostics.rankingReasons.length === 0 ? (
+                  <span className="text-muted-foreground">No ranking reasons recorded.</span>
+                ) : diagnostics.rankingReasons.map((reason) => (
+                  <Badge key={reason} variant="secondary" className="text-[9px]">
+                    {reason}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-3 xl:grid-cols-2">
+              {candidates.map((candidate) => {
+                const selected = candidate.kind === diagnostics.selectedKind;
+                return (
+                  <div
+                    key={`${candidate.kind}-${candidate.source || 'none'}-${candidate.transport || 'na'}`}
+                    className={cn(
+                      'rounded-lg border p-3 text-[10px] space-y-2',
+                      selected ? 'border-blue-500/60 bg-blue-500/5' : 'border-muted-foreground/10 bg-muted/10',
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-semibold uppercase tracking-wide text-muted-foreground">{formatTurnOrderSourceLabel(candidate.kind)}</p>
+                        <p className="font-mono break-all">{candidate.source || 'none'}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge variant="outline" className="text-[9px] font-mono">{formatTurnOrderConfidence(candidate.confidence)}</Badge>
+                        <Badge variant="secondary" className="text-[9px] font-mono">{candidate.count} row{candidate.count === 1 ? '' : 's'}</Badge>
+                        <Badge variant="outline" className="text-[9px] font-mono">{candidate.fresh ? 'fresh' : 'stale'}</Badge>
+                      </div>
+                    </div>
+                    <p className="text-muted-foreground">{candidate.reason || 'No reason captured.'}</p>
+                    <p className="font-mono text-muted-foreground">
+                      age {formatTurnOrderAge(candidate.ageMs)}
+                      {candidate.transport ? ` · ${candidate.transport}` : ''}
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {candidate.matchedFields.map((field) => (
+                        <Badge key={`${candidate.kind}-match-${field}`} variant="secondary" className="text-[9px]">
+                          +{field}
+                        </Badge>
+                      ))}
+                      {candidate.rejectedFields.map((field) => (
+                        <Badge key={`${candidate.kind}-reject-${field}`} variant="outline" className="text-[9px]">
+                          -{field}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="space-y-1">
+                      {candidate.entries.length === 0 ? (
+                        <p className="text-muted-foreground">No rows captured.</p>
+                      ) : candidate.entries.slice(0, 4).map((entry) => (
+                        <div key={`${candidate.kind}-${entry.unitId}-${entry.ordinal}`} className="flex items-center justify-between gap-2 rounded bg-background/70 px-2 py-1">
+                          <span className="truncate">
+                            {formatCombatantTurnLabel({
+                              name: entry.name,
+                              heroClass: entry.heroClass || null,
+                              level: entry.level ?? null,
+                            })}
+                          </span>
+                          <span className="font-mono text-[9px] text-muted-foreground">
+                            {entry.ticksUntilTurn != null ? formatTurnOrderTickValue(entry.ticksUntilTurn) : 'order'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Timeline</p>
+                {currentDelta && (
+                  <Badge variant="outline" className="text-[9px] font-mono">
+                    {currentDelta.orderChanged ? 'order changed' : 'order stable'}
+                    {' · '}
+                    +{currentDelta.added.length} / -{currentDelta.removed.length} / ~{currentDelta.changed.length}
+                  </Badge>
+                )}
+              </div>
+              {recentHistory.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">No turn-order history captured yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {recentHistory.map((snapshot, index) => {
+                    const previous = index > 0 ? recentHistory[index - 1] : null;
+                    const comparison = previous ? compareTurnOrderSequences(previous.entries, snapshot.entries) : null;
+                    return (
+                      <div key={snapshot.snapshotId} className="rounded-md border border-muted-foreground/10 bg-background/70 p-2 text-[10px] space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="font-semibold">{snapshot.snapshotId}</p>
+                            <p className="text-muted-foreground">
+                              turn {snapshot.turnNumber ?? 'n/a'} · {formatTurnOrderSourceLabel(getTurnOrderSourceKindFromValue(snapshot.source))} · {new Date(snapshot.capturedAt).toLocaleTimeString()}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Badge variant="outline" className="text-[9px] font-mono">
+                              {snapshot.entries.length} row{snapshot.entries.length === 1 ? '' : 's'}
+                            </Badge>
+                            {comparison && (
+                              <Badge variant={comparison.orderChanged ? 'secondary' : 'outline'} className="text-[9px] font-mono">
+                                {comparison.orderChanged ? 'changed' : 'stable'}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <p className="font-mono text-muted-foreground break-words">
+                          {formatTurnOrderSequence(snapshot.entries)}
+                        </p>
+                        {comparison && (
+                          <div className="flex flex-wrap gap-1">
+                            {comparison.added.length > 0 && (
+                              <Badge variant="secondary" className="text-[9px]">+{comparison.added.length}</Badge>
+                            )}
+                            {comparison.removed.length > 0 && (
+                              <Badge variant="outline" className="text-[9px]">-{comparison.removed.length}</Badge>
+                            )}
+                            {comparison.changed.length > 0 && (
+                              <Badge variant="outline" className="text-[9px]">~{comparison.changed.length}</Badge>
+                            )}
+                            {comparison.changed.slice(0, 2).map((change) => (
+                              <span key={`${snapshot.snapshotId}-${change.unitId}`} className="text-muted-foreground">
+                                {formatCombatName(change.name)} {formatTurnOrderTickValue(change.beforeTicksUntilTurn)} → {formatTurnOrderTickValue(change.afterTicksUntilTurn)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -2813,6 +3262,7 @@ export default function HuntCompanion() {
                   pendingActionKey={pendingManualActionKey}
                 />
                 <TurnOrderPanel combatFrame={combatFrame} avgPartyLevel={avgPartyLevel} heroes={battleState.heroes} />
+                <TurnOrderDiagnosticsPanel combatFrame={combatFrame} />
               </div>
 
             {syncIssues.length > 0 && (
