@@ -219,6 +219,8 @@ console.log('[DFK StatPanel] Script file loaded');
       secondaryArms: [],
       iconUrl: null,
       heroDetail: null,
+      runtimeCombatant: null,
+      runtimeBattleData: null,
       parseConfidence: 0,
     };
 
@@ -450,6 +452,38 @@ console.log('[DFK StatPanel] Script file loaded');
         primaryArms: [...snapshot.primaryArms],
         secondaryArms: [...snapshot.secondaryArms],
       };
+    }
+
+    if (window.__dfkReactRuntime?.extractCombatantRuntime) {
+      const runtimeCombatant = window.__dfkReactRuntime.extractCombatantRuntime(panelEl);
+      if (runtimeCombatant) {
+        snapshot.runtimeCombatant = runtimeCombatant;
+        snapshot.runtimeBattleData = runtimeCombatant.battleData || null;
+        const baseCombatant = runtimeCombatant.baseCombatant || null;
+        const runtimeSide = runtimeCombatant.currentLocation?.side;
+        if (!snapshot.unitName && baseCombatant?.name) snapshot.unitName = baseCombatant.name;
+        if (!snapshot.level && baseCombatant?.level != null) snapshot.level = baseCombatant.level;
+        if ((!snapshot.unitSide || snapshot.unitSide === 'player') && runtimeSide != null) {
+          snapshot.unitSide = Number(runtimeSide) === -1 ? 'enemy' : 'player';
+        }
+        if (snapshot.heroDetail) {
+          snapshot.heroDetail = {
+            ...snapshot.heroDetail,
+            name: snapshot.heroDetail.name || baseCombatant?.name || null,
+            level: snapshot.heroDetail.level ?? baseCombatant?.level ?? null,
+            heroClass: snapshot.heroDetail.heroClass || baseCombatant?.mainClassStr || null,
+            runtimeState: runtimeCombatant,
+          };
+        }
+        if (debugMode) {
+          debugMeta.runtimeCombatant = {
+            baseCombatant: baseCombatant || null,
+            attackConfigCount: Array.isArray(runtimeCombatant.attackConfigs) ? runtimeCombatant.attackConfigs.length : 0,
+            comboTrackerCount: Array.isArray(runtimeCombatant.comboTrackers) ? runtimeCombatant.comboTrackers.length : 0,
+            passiveTrackerCount: Array.isArray(runtimeCombatant.passiveTrackers) ? runtimeCombatant.passiveTrackers.length : 0,
+          };
+        }
+      }
     }
 
     snapshot.buffs = uniqueStrings(snapshot.buffs);

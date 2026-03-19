@@ -85,6 +85,12 @@
     url: null,
     transport: null,
   };
+  let latestRuntimeTurnOrder = {
+    entries: [],
+    capturedAt: 0,
+    battleData: null,
+    turnNumber: null,
+  };
   let latestModalTurnOrder = {
     entries: [],
     capturedAt: 0,
@@ -193,6 +199,29 @@
       }
     }
     return null;
+  }
+
+  function findHeroBySlot(heroes, slot) {
+    const normalizedSlot = Number.isFinite(Number(slot)) ? Number(slot) : null;
+    if (normalizedSlot == null) return null;
+    return (heroes || []).find((hero) => Number(hero.slot) === normalizedSlot) || null;
+  }
+
+  function summarizeBattleDataForPrediction(runtimeBattleData) {
+    if (!runtimeBattleData || typeof runtimeBattleData !== 'object') return null;
+    return {
+      sessionId: runtimeBattleData.sessionId || null,
+      scenarioId: runtimeBattleData.scenarioId || null,
+      battleType: runtimeBattleData.battleType ?? null,
+      combatType: runtimeBattleData.combatType || null,
+      turnCount: extractNumber(String(runtimeBattleData.turnCount ?? '')) ?? null,
+      roundCount: extractNumber(String(runtimeBattleData.roundCount ?? '')) ?? null,
+      totalTicks: typeof runtimeBattleData.totalTicks === 'number' ? runtimeBattleData.totalTicks : null,
+      battleBudget: runtimeBattleData.battleBudget || null,
+      allowedAttacks: Array.isArray(runtimeBattleData.allowedAttacks) ? runtimeBattleData.allowedAttacks : [],
+      nextPlayTurn: runtimeBattleData.nextPlayTurn || null,
+      lastPlayedAttack: runtimeBattleData.lastPlayedAttack || null,
+    };
   }
 
   function inferStatusIconUrl(name) {
@@ -934,9 +963,10 @@
         const countText = normalizeText(tooltip.textContent || '');
         const stacks = /^\d+$/.test(countText) ? parseInt(countText, 10) : null;
         const tooltipMeta = extractTrackerTooltipMeta(tooltip, rawName);
+        const resolvedName = normalizeText(tooltipMeta?.tooltipTitle || rawName || `Effect ${index + 1}`);
         return {
-          id: normalizedName(rawName || `effect_${index + 1}`),
-          name: rawName || `Effect ${index + 1}`,
+          id: normalizedName(resolvedName || `effect_${index + 1}`),
+          name: resolvedName || `Effect ${index + 1}`,
           category: 'status',
           stacks,
           durationTurns: stacks,
@@ -956,6 +986,110 @@
     return effectMap;
   }
 
+  function findTurnOrderModalRoot() {
+    const headings = [...document.querySelectorAll('h1,h2,h3,h4,div,p,span')]
+      .filter((el) => isVisible(el) && /turn order/i.test((el.textContent || '').trim()));
+
+    for (const heading of headings) {
+      let node = heading;
+      for (let depth = 0; depth < 6 && node; depth += 1) {
+        const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+        if (/turn order/i.test(text) && /combatant:|ticks until turn|\border\b/i.test(text)) return node;
+        node = node.parentElement;
+      }
+    }
+    return null;
+  }
+
+  function resolveRuntimePlayerIdentity(slot, heroes, ordinal) {
+    const normalizedSlot = Number.isFinite(Number(slot)) ? Number(slot) : null;
+    const visibleHero = findHeroBySlot(heroes, normalizedSlot) || ((heroes || [])[ordinal] || null);
+    const profiles = getOrderedHeroProfiles();
+    const profile = normalizedSlot != null
+      ? profiles.find((candidate) => Number(candidate.slot) === normalizedSlot)
+      : (profiles[ordinal] || null);
+    const heroId = String(profile?.heroId || profile?.id || '').trim() || null;
+    const name = normalizeText(visibleHero?.name || profile?.unitName || profile?.name || profile?.displayName || '');
+    const heroClass = profile?.mainClass || null;
+    const level = profile?.level != null ? Number(profile.level) : null;
+    return {
+      unitId: `player:${normalizedSlot == null ? 'na' : normalizedSlot}:${normalizedName(name || heroId || `player_${ordinal}`)}`,
+      name: name || `Hero ${ordinal + 1}`,
+      side: 'player',
+      slot: normalizedSlot,
+      ticksUntilTurn: null,
+      totalTicks: null,
+      ordinal,
+      heroId,
+      heroClass,
+      level,
+      iconUrl: findPortraitImage(name, 'player'),
+      source: 'runtime',
+    };
+  }
+
+  function resolveRuntimeEnemyIdentity(slot, enemies, ordinal) {
+    const normalizedSlot = Number.isFinite(Number(slot)) ? Number(slot) : null;
+    const bySlot = (enemies || []).find((enemy) => Number(enemy.slot) === normalizedSlot) || null;
+    const byOrdinal = (enemies || [])[ordinal] || null;
+    const fallbackName =
+      normalizedSlot === 0 ? 'Baby Boar 1'
+      : normalizedSlot === 1 ? 'Baby Boar 2'
+      : normalizedSlot === 2 ? 'Big Boar'
+      : `Enemy ${ordinal + 1}`;
+    const name = bySlot?.name || byOrdinal?.name || fallbackName;
+    return {
+      unitId: `enemy:${normalizedSlot == null ? 'na' : normalizedSlot}:${normalizedName(name)}`,
+      name,
+      side: 'enemy',
+      slot: normalizedSlot,
+      ticksUntilTurn: null,
+      totalTicks: null,
+      ordinal,
+      heroId: null,
+      heroClass: null,
+      level: null,
+      iconUrl: bySlot?.iconUrl || byOrdinal?.iconUrl || findPortraitImage(name, 'enemy'),
+      source: 'runtime',
+    };
+  }
+
+  function readTurnOrderRuntime(heroes, enemies) {
+    const root = findTurnOrderModalRoot();
+    if (!root || !window.__dfkReactRuntime?.extractTurnOrderRuntime) return [];
+    const runtime = window.__dfkReactRuntime.extractTurnOrderRuntime(root);
+    if (!runtime || !Array.isArray(runtime.turns) || runtime.turns.length === 0) return [];
+
+    let playerOrdinal = 0;
+    let enemyOrdinal = 0;
+    const entries = runtime.turns.map((turn, ordinal) => {
+      const sideValue = Number(turn.side);
+      const slot = Number.isFinite(Number(turn.slot)) ? Number(turn.slot) : null;
+      const base = sideValue === -1
+        ? resolveRuntimeEnemyIdentity(slot, enemies, enemyOrdinal++)
+        : resolveRuntimePlayerIdentity(slot, heroes, playerOrdinal++);
+      return {
+        ...base,
+        ticksUntilTurn: turn.ticks != null ? turn.ticks : null,
+        totalTicks: turn.totalTicks != null ? turn.totalTicks : null,
+        turnType: turn.turnType != null ? turn.turnType : null,
+        ordinal,
+        source: 'runtime',
+      };
+    }).filter(Boolean);
+
+    if (entries.length > 0) {
+      latestRuntimeTurnOrder = {
+        entries,
+        capturedAt: Date.now(),
+        battleData: summarizeBattleDataForPrediction(runtime.battleData),
+        turnNumber: currentTurnState?.turnNumber ?? null,
+      };
+    }
+
+    return entries;
+  }
+
   function readTurnOrderModal() {
     function buildEntry(name, ticksUntilTurn, ordinal) {
       const side = /boar|enemy|monster|clucker|rocboc|wolf/i.test(name) ? 'enemy' : 'player';
@@ -966,27 +1100,14 @@
         side,
         slot: slotMatch ? parseInt(slotMatch[1], 10) : null,
         ticksUntilTurn,
+        totalTicks: null,
         ordinal,
+        source: 'modal_text',
       };
     }
 
-    function findTurnOrderRoot() {
-      const headings = [...document.querySelectorAll('h1,h2,h3,h4,div,p,span')]
-        .filter((el) => isVisible(el) && /turn order/i.test((el.textContent || '').trim()));
-
-      for (const heading of headings) {
-        let node = heading;
-        for (let depth = 0; depth < 5 && node; depth += 1) {
-          const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
-          if (/ticks until turn/i.test(text) && /combatant:/i.test(text)) return node;
-          node = node.parentElement;
-        }
-      }
-      return null;
-    }
-
     const entries = [];
-    const root = findTurnOrderRoot();
+    const root = findTurnOrderModalRoot();
     const textNodes = root ? root.querySelectorAll('div,li') : document.querySelectorAll('div,li');
 
     textNodes.forEach((el, index) => {
@@ -1026,7 +1147,7 @@
     return normalizedEntries;
   }
 
-  function resolveStripPlayerIdentity(heroImgUrl, playerOrdinal, overallOrdinal) {
+  function resolveStripPlayerIdentity(heroImgUrl, playerOrdinal, overallOrdinal, heroes) {
     const match = String(heroImgUrl || '').match(/\/image\/[^/]+\/(\d+)(?:[/?#]|$)/i);
     const heroId = match ? match[1] : null;
     const profiles = getOrderedHeroProfiles();
@@ -1034,35 +1155,39 @@
       ? profiles.find((candidate) =>
           normalizeHeroId(candidate.heroId || candidate.id || candidate.normalizedId || '') === heroId)
       : (profiles[playerOrdinal] || null);
-    const name = normalizeText(profile?.unitName || profile?.name || profile?.displayName || '');
-    const slot = profile?.slot != null ? Number(profile.slot) : playerOrdinal;
+    const visibleHero = (heroes || []).find((hero) => Number(hero.slot) === Number(profile?.slot)) || (heroes || [])[playerOrdinal] || null;
+    const name = normalizeText(visibleHero?.name || profile?.unitName || profile?.name || profile?.displayName || '');
+    const slot = profile?.slot != null ? Number(profile.slot) : (visibleHero?.slot ?? playerOrdinal);
     return {
       unitId: `player:${slot == null ? 'na' : slot}:${normalizedName(name || heroId || `player_${playerOrdinal}`)}`,
       name: name || `Hero ${playerOrdinal + 1}`,
       side: 'player',
       slot,
       ticksUntilTurn: null,
+      totalTicks: null,
       ordinal: overallOrdinal,
       heroId: profile?.heroId ? String(profile.heroId) : heroId,
       heroClass: profile?.mainClass || null,
       level: profile?.level != null ? Number(profile.level) : null,
       iconUrl: heroImgUrl || null,
+      source: 'strip',
     };
   }
 
-  function resolveStripEnemyIdentity(enemyImgs, enemyOrdinal, overallOrdinal) {
+  function resolveStripEnemyIdentity(enemyImgs, enemyOrdinal, overallOrdinal, enemies) {
     const urls = Array.isArray(enemyImgs) ? enemyImgs.map((value) => String(value || '')) : [];
     const url = urls.find((value) => /\/assets\/avatars\//i.test(value)) || '';
-    let name = `Enemy ${enemyOrdinal + 1}`;
-    let slot = null;
+    let name = (enemies || [])[enemyOrdinal]?.name || `Enemy ${enemyOrdinal + 1}`;
+    let slot = (enemies || [])[enemyOrdinal]?.slot ?? null;
     if (/baby_boar_portrait_2/i.test(url)) {
       name = 'Baby Boar 2';
-      slot = 2;
+      slot = 1;
     } else if (/baby_boar_portrait/i.test(url)) {
       name = 'Baby Boar 1';
-      slot = 1;
+      slot = 0;
     } else if (/mama_boar_portrait/i.test(url)) {
       name = 'Big Boar';
+      slot = 2;
     }
     return {
       unitId: `enemy:${slot == null ? 'na' : slot}:${normalizedName(name)}`,
@@ -1070,15 +1195,17 @@
       side: 'enemy',
       slot,
       ticksUntilTurn: null,
+      totalTicks: null,
       ordinal: overallOrdinal,
       heroId: null,
       heroClass: null,
       level: null,
       iconUrl: url || null,
+      source: 'strip',
     };
   }
 
-  function readTurnOrderStrip() {
+  function readTurnOrderStrip(heroes, enemies) {
     const buttons = findTurnIndicatorButtons();
     let playerOrdinal = 0;
     let enemyOrdinal = 0;
@@ -1087,12 +1214,12 @@
       const heroImg = heroImgEl?.currentSrc || heroImgEl?.getAttribute('src') || null;
       const enemyImgs = Array.from(btn.querySelectorAll('._enemyContainer_hjm7j_177 img')).map((img) => img.currentSrc || img.getAttribute('src'));
       if (heroImg) {
-        const row = resolveStripPlayerIdentity(heroImg, playerOrdinal, overallOrdinal);
+        const row = resolveStripPlayerIdentity(heroImg, playerOrdinal, overallOrdinal, heroes);
         playerOrdinal += 1;
         return row;
       }
       if (enemyImgs.length > 0) {
-        const row = resolveStripEnemyIdentity(enemyImgs, enemyOrdinal, overallOrdinal);
+        const row = resolveStripEnemyIdentity(enemyImgs, enemyOrdinal, overallOrdinal, enemies);
         enemyOrdinal += 1;
         return row;
       }
@@ -1130,11 +1257,25 @@
         side: match.side || baseEntry.side,
         slot: match.slot != null ? match.slot : baseEntry.slot,
         ticksUntilTurn: match.ticksUntilTurn != null ? match.ticksUntilTurn : baseEntry.ticksUntilTurn,
+        totalTicks: match.totalTicks != null ? match.totalTicks : (baseEntry.totalTicks ?? null),
+        heroId: match.heroId || baseEntry.heroId || null,
+        heroClass: match.heroClass || baseEntry.heroClass || null,
+        level: match.level != null ? match.level : (baseEntry.level ?? null),
+        iconUrl: match.iconUrl || baseEntry.iconUrl || null,
+        source: match.source || baseEntry.source || null,
       };
     });
 
     const remaining = detail.filter((_, index) => !usedDetailIndexes.has(index));
     return [...merged, ...remaining].slice(0, 12).map((entry, ordinal) => ({ ...entry, ordinal }));
+  }
+
+  function getFreshRuntimeTurnOrder() {
+    const entries = Array.isArray(latestRuntimeTurnOrder.entries) ? latestRuntimeTurnOrder.entries : [];
+    if (entries.length === 0) return [];
+    const ageMs = Date.now() - (latestRuntimeTurnOrder.capturedAt || 0);
+    if (ageMs > 30000) return [];
+    return entries;
   }
 
   function getFreshModalTurnOrder() {
@@ -1145,7 +1286,30 @@
     return entries;
   }
 
-  function readTurnOrder() {
+  function readTurnOrder(heroes, enemies) {
+    const runtimeEntries = readTurnOrderRuntime(heroes, enemies);
+    const cachedRuntimeEntries = runtimeEntries.length > 0 ? runtimeEntries : getFreshRuntimeTurnOrder();
+    const stripEntries = readTurnOrderStrip(heroes, enemies);
+    const modalEntries = readTurnOrderModal();
+    const cachedModalEntries = modalEntries.length > 0 ? modalEntries : getFreshModalTurnOrder();
+
+    if (cachedRuntimeEntries.length > 0) {
+      let mergedRuntimeEntries = mergeTurnOrderEntries(cachedRuntimeEntries, stripEntries);
+      if (cachedModalEntries.length > 0) {
+        mergedRuntimeEntries = mergeTurnOrderEntries(mergedRuntimeEntries, cachedModalEntries);
+      }
+      window.__dfkSelectorDiag.turn_order_source = cachedModalEntries.length > 0 ? 'runtime+modal' : 'runtime';
+      window.__dfkSelectorDiag.turn_order_runtime_count = cachedRuntimeEntries.length;
+      window.__dfkSelectorDiag.turn_order_runtime_age_ms = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
+      window.__dfkSelectorDiag.turn_order_runtime_resolved_count = mergedRuntimeEntries.filter((entry) => !/^Hero\s+\d+/i.test(entry.name || '')).length;
+      window.__dfkSelectorDiag.turn_order_runtime_unresolved_count = mergedRuntimeEntries.filter((entry) => /^Hero\s+\d+/i.test(entry.name || '')).length;
+      window.__dfkSelectorDiag.turn_order_strip_count = stripEntries.length;
+      window.__dfkSelectorDiag.turn_order_modal_count = cachedModalEntries.length;
+      window.__dfkSelectorDiag.turn_order_modal_age_ms = latestModalTurnOrder.capturedAt ? (Date.now() - latestModalTurnOrder.capturedAt) : null;
+      if (mergedRuntimeEntries.length > 0) markTurnOrderCapturedForHunt();
+      return mergedRuntimeEntries;
+    }
+
     const recentNetworkEntries = Array.isArray(latestNetworkTurnOrder.entries) ? latestNetworkTurnOrder.entries : [];
     const networkIsFresh = recentNetworkEntries.length > 0 && (Date.now() - (latestNetworkTurnOrder.capturedAt || 0)) < 30000;
     if (networkIsFresh) {
@@ -1155,15 +1319,14 @@
       return recentNetworkEntries.slice(0, 12);
     }
 
-    const stripEntries = readTurnOrderStrip();
-    const modalEntries = readTurnOrderModal();
-    const cachedModalEntries = modalEntries.length > 0 ? modalEntries : getFreshModalTurnOrder();
     const mergedEntries = mergeTurnOrderEntries(stripEntries, cachedModalEntries);
     window.__dfkSelectorDiag.turn_order_source =
-      cachedModalEntries.length > 0 && stripEntries.length > 0 ? 'strip+modal'
-      : cachedModalEntries.length > 0 ? 'modal'
+      cachedModalEntries.length > 0 && stripEntries.length > 0 ? 'modal_text'
+      : cachedModalEntries.length > 0 ? 'modal_text'
       : stripEntries.length > 0 ? 'strip'
       : 'none';
+    window.__dfkSelectorDiag.turn_order_runtime_count = cachedRuntimeEntries.length;
+    window.__dfkSelectorDiag.turn_order_runtime_age_ms = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
     window.__dfkSelectorDiag.turn_order_strip_count = stripEntries.length;
     window.__dfkSelectorDiag.turn_order_modal_count = cachedModalEntries.length;
     window.__dfkSelectorDiag.turn_order_modal_age_ms = latestModalTurnOrder.capturedAt ? (Date.now() - latestModalTurnOrder.capturedAt) : null;
@@ -1206,14 +1369,22 @@
     }
     if (turnOrderPrimeInFlight) return;
     if (document.visibilityState === 'hidden') return;
+    const freshRuntimeEntries = getFreshRuntimeTurnOrder();
+    const freshRuntimeTurnNumber = latestRuntimeTurnOrder.turnNumber;
     const freshModalEntries = getFreshModalTurnOrder();
     const freshModalTurnNumber = latestModalTurnOrder.turnNumber;
     const currentTurnNumber = currentTurnState?.turnNumber ?? null;
-    if (hasCapturedTurnOrderForHunt() && freshModalEntries.length > 0 && (freshModalTurnNumber == null || currentTurnNumber == null || freshModalTurnNumber === currentTurnNumber)) {
+    if (hasCapturedTurnOrderForHunt() &&
+        (freshRuntimeEntries.length > 0 || freshModalEntries.length > 0) &&
+        (
+          (freshRuntimeTurnNumber == null || currentTurnNumber == null || freshRuntimeTurnNumber === currentTurnNumber) ||
+          (freshModalTurnNumber == null || currentTurnNumber == null || freshModalTurnNumber === currentTurnNumber)
+        )) {
       window.__dfkSelectorDiag.turn_order_auto_prime_complete = true;
       return;
     }
     if ((Date.now() - lastTurnOrderPrimeAt) < 30000) return;
+    if (readTurnOrderRuntime(currentTurnState.heroes || [], currentTurnState.enemies || []).length > 0) return;
     if (readTurnOrderModal().length > 0) return;
     if ((Date.now() - lastUserInteractionAt) < 4000) {
       window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'recent_interaction';
@@ -1241,7 +1412,7 @@
     });
 
     window.setTimeout(() => {
-      if (readTurnOrderModal().length > 0) {
+      if (readTurnOrderRuntime(currentTurnState.heroes || [], currentTurnState.enemies || []).length > 0 || readTurnOrderModal().length > 0) {
         markTurnOrderCapturedForHunt();
       }
       const closeBtn = findVisibleCloseButton();
@@ -1257,7 +1428,6 @@
   function buildTurnSnapshot() {
     const hpReadings = readHpBars();
     const mpReadings = readMpBars();
-    const turnOrder = readTurnOrder();
     const commandPanel = findCommandPanelRoot();
 
     const unitMap = {};
@@ -1277,6 +1447,7 @@
 
     const heroes = Object.values(unitMap).filter(u => u.side === 'player');
     const enemies = Object.values(unitMap).filter(u => u.side === 'enemy');
+    const turnOrder = readTurnOrder(heroes, enemies);
     const activeUnit = readActiveUnit(commandPanel, heroes, turnOrder);
     const legalActions = readLegalActions(commandPanel);
     const selectedTarget = readSelectedTarget();
@@ -1303,6 +1474,15 @@
       enemies,
       battleBudgetRemaining,
       turnOrder,
+      runtimeBattleData: latestRuntimeTurnOrder.battleData || null,
+      predictionInputs: latestRuntimeTurnOrder.battleData ? {
+        battleBudget: latestRuntimeTurnOrder.battleData.battleBudget || null,
+        allowedAttacks: Array.isArray(latestRuntimeTurnOrder.battleData.allowedAttacks) ? latestRuntimeTurnOrder.battleData.allowedAttacks : [],
+        nextPlayTurn: latestRuntimeTurnOrder.battleData.nextPlayTurn || null,
+        totalTicks: latestRuntimeTurnOrder.battleData.totalTicks ?? null,
+        turnCount: latestRuntimeTurnOrder.battleData.turnCount ?? null,
+        lastPlayedAttack: latestRuntimeTurnOrder.battleData.lastPlayedAttack || null,
+      } : null,
       lastUpdated: Date.now(),
     };
 
@@ -1317,6 +1497,10 @@
           consumableIconUrls: (legalConsumables || []).map((item) => item.iconUrl).filter(Boolean),
           turnOrder: {
             source: window.__dfkSelectorDiag.turn_order_source || null,
+            runtimeCount: window.__dfkSelectorDiag.turn_order_runtime_count ?? null,
+            runtimeAgeMs: window.__dfkSelectorDiag.turn_order_runtime_age_ms ?? null,
+            resolvedCount: window.__dfkSelectorDiag.turn_order_runtime_resolved_count ?? null,
+            unresolvedCount: window.__dfkSelectorDiag.turn_order_runtime_unresolved_count ?? null,
             stripCount: window.__dfkSelectorDiag.turn_order_strip_count ?? null,
             modalCount: window.__dfkSelectorDiag.turn_order_modal_count ?? null,
             modalAgeMs: window.__dfkSelectorDiag.turn_order_modal_age_ms ?? null,
@@ -1326,6 +1510,8 @@
             autoPrimeCount: window.__dfkSelectorDiag.turn_order_auto_prime_count ?? null,
             autoPrimeSkipped: window.__dfkSelectorDiag.turn_order_auto_prime_skipped || null,
           },
+          runtimeTurnOrderSample: (latestRuntimeTurnOrder.entries || []).slice(0, 6),
+          runtimeBattleDataSample: latestRuntimeTurnOrder.battleData || null,
         },
       };
     }

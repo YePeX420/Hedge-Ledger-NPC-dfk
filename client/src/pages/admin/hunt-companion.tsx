@@ -111,6 +111,7 @@ interface HeroDetailData {
   items: string[];
   primaryArms?: string[];
   secondaryArms?: string[];
+  runtimeState?: unknown;
 }
 
 interface CombatFrame {
@@ -138,6 +139,7 @@ interface CombatFrame {
     stats: Record<string, number | null>;
     resistances?: Record<string, number | null>;
     heroDetail?: HeroDetailData | null;
+    engineState?: unknown;
     sourceConfidence: number;
   }>;
   activeTurn: {
@@ -151,13 +153,15 @@ interface CombatFrame {
     visibleLockouts: Record<string, number | null>;
     battleBudgetRemaining: number | null;
   };
-  turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; ordinal: number; heroId?: string | null; heroClass?: string | null; level?: number | null; iconUrl?: string | null }>;
+  turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; totalTicks?: number | null; ordinal: number; heroId?: string | null; heroClass?: string | null; level?: number | null; iconUrl?: string | null; source?: string | null }>;
   battleLogEntries: Array<{ turnNumber: number; actorName: string | null; ability: string | null; outcomes: string[]; rawText?: string | null }>;
   heroDetail: HeroDetailData | null;
+  predictionInputs?: Record<string, unknown> | null;
   captureMeta: {
     source: string;
     capturedAt: number;
     confidence: Record<string, number>;
+    runtimeBattleData?: Record<string, unknown> | null;
   };
 }
 
@@ -597,10 +601,12 @@ function mergeCombatFrames(
         return {
           ...row,
           ticksUntilTurn: row.ticksUntilTurn != null ? row.ticksUntilTurn : (prevMatch?.ticksUntilTurn ?? null),
+          totalTicks: row.totalTicks != null ? row.totalTicks : (prevMatch?.totalTicks ?? null),
           heroId: row.heroId || prevMatch?.heroId || null,
           heroClass: row.heroClass || prevMatch?.heroClass || null,
           level: row.level ?? prevMatch?.level ?? null,
           iconUrl: row.iconUrl || prevMatch?.iconUrl || null,
+          source: row.source || prevMatch?.source || null,
         };
       })
     : prevTurnOrder;
@@ -611,6 +617,7 @@ function mergeCombatFrames(
       iconUrl: unit.iconUrl || prevUnit?.iconUrl || null,
       heroClass: unit.heroClass || prevUnit?.heroClass || null,
       heroDetail: unit.heroDetail || prevUnit?.heroDetail || null,
+      engineState: unit.engineState || prevUnit?.engineState || null,
       buffs: unit.buffs?.length ? unit.buffs : (prevUnit?.buffs || []),
       debuffs: unit.debuffs?.length ? unit.debuffs : (prevUnit?.debuffs || []),
       visibleEffects: unit.visibleEffects?.length ? unit.visibleEffects : (prevUnit?.visibleEffects || []),
@@ -620,6 +627,12 @@ function mergeCombatFrames(
     ...next,
     combatants: mergedCombatants,
     turnOrder: mergedTurnOrder,
+    predictionInputs: next.predictionInputs || prev.predictionInputs || null,
+    captureMeta: {
+      ...(prev.captureMeta || {}),
+      ...(next.captureMeta || {}),
+      runtimeBattleData: next.captureMeta?.runtimeBattleData || prev.captureMeta?.runtimeBattleData || null,
+    },
   };
 }
 
@@ -1406,7 +1419,6 @@ function TurnOrderPanel({
   heroes: HeroSnapshot[];
 }) {
   const rows = combatFrame?.turnOrder || [];
-  let playerRowIndex = 0;
   return (
     <Card className="h-full">
       <CardContent className="p-4 h-full flex flex-col">
@@ -1415,14 +1427,17 @@ function TurnOrderPanel({
           {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
           {rows.map((row) => {
             const combatant = combatFrame?.combatants.find((unit) => unit.unitId === row.unitId) || null;
-            const fallbackHero = row.side === 'player' && heroes.length > 0
-              ? heroes[(playerRowIndex++) % heroes.length]
+            const needsHeroFallback =
+              row.side === 'player' &&
+              (!row.name || /^hero\s+\d+/i.test(row.name) || !row.heroId);
+            const fallbackHero = needsHeroFallback && heroes.length > 0
+              ? heroes.find((hero) => hero.slot === row.slot) || null
               : null;
-            const displayName = fallbackHero?.name || combatant?.name || row.name;
+            const displayName = combatant?.name || row.name || fallbackHero?.name || 'Unknown';
             const displayHeroClass = row.heroClass || combatant?.heroClass || fallbackHero?.mainClass || null;
             const displayHeroId = row.heroId || combatant?.heroId || fallbackHero?.heroId || null;
             const displayIconUrl = row.iconUrl || combatant?.iconUrl || fallbackHero?.iconUrl || null;
-            const displayLevel = row.level ?? fallbackHero?.level ?? combatant?.heroDetail?.level ?? null;
+            const displayLevel = row.level ?? combatant?.heroDetail?.level ?? fallbackHero?.level ?? null;
             const calculated = computeCalculatedCombatSnapshot(
               combatant?.heroDetail?.baseStats || combatant?.stats || null,
               avgPartyLevel,

@@ -35,6 +35,7 @@
     {
       "matches": ["*://game.defikingdoms.com/*"],
       "js": [
+        "parsers/reactRuntime.js",
         "parsers/battleLog.js",
         "parsers/statPanel.js",
         "parsers/turnState.js",

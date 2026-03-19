@@ -182,24 +182,27 @@
 
   function toStatusInstances(values, category) {
     return (values || []).map((value) => {
-      const raw = typeof value === 'object' && value !== null
-        ? String(value.sourceText || value.name || value.id || '').trim()
+      const sourceText = typeof value === 'object' && value !== null
+        ? String(value.sourceText || '').trim()
         : String(value || '').trim();
-      const stackMatch = raw.match(/(?:x|stack(?:s)?\s*:?\s*)(\d+)/i);
-      const turnMatch = raw.match(/(\d+)\s*(?:turn|tick)/i);
-      const cleanName = raw
+      const preferredName = typeof value === 'object' && value !== null
+        ? String(value.tooltipTitle || value.name || value.id || sourceText || '').trim()
+        : sourceText;
+      const stackMatch = sourceText.match(/(?:x|stack(?:s)?\s*:?\s*)(\d+)/i);
+      const turnMatch = sourceText.match(/(\d+)\s*(?:turn|tick)/i);
+      const cleanName = preferredName
         .replace(/(?:x|stack(?:s)?\s*:?\s*)\d+/gi, '')
         .replace(/\d+\s*(?:turn|tick)s?/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
       return {
-        id: normalizeId(cleanName || raw || category),
-        name: cleanName || raw || category,
+        id: normalizeId(cleanName || preferredName || sourceText || category),
+        name: cleanName || preferredName || sourceText || category,
         category,
         stacks: stackMatch ? parseInt(stackMatch[1], 10) : null,
         durationTurns: turnMatch ? parseInt(turnMatch[1], 10) : null,
         iconUrl: typeof value === 'object' && value !== null ? (value.iconUrl || null) : null,
-        sourceText: raw || null,
+        sourceText: sourceText || null,
         tooltipTitle: typeof value === 'object' && value !== null ? (value.tooltipTitle || null) : null,
         tooltipSubtitle: typeof value === 'object' && value !== null ? (value.tooltipSubtitle || null) : null,
         tooltipBullets: typeof value === 'object' && value !== null && Array.isArray(value.tooltipBullets)
@@ -220,6 +223,13 @@
   function latestHeroDetailSnapshot() {
     for (let i = unitSnapshotCache.length - 1; i >= 0; i--) {
       if (unitSnapshotCache[i]?.heroDetail) return unitSnapshotCache[i].heroDetail;
+    }
+    return null;
+  }
+
+  function latestRuntimeBattleDataSnapshot() {
+    for (let i = unitSnapshotCache.length - 1; i >= 0; i--) {
+      if (unitSnapshotCache[i]?.runtimeBattleData) return unitSnapshotCache[i].runtimeBattleData;
     }
     return null;
   }
@@ -310,6 +320,8 @@
       const buffs = toStatusInstances([...(unit.buffs || []), ...(modal?.buffs || [])], 'buff');
       const debuffs = toStatusInstances([...(unit.debuffs || []), ...(modal?.debuffs || [])], 'debuff');
       const name = unit.name || modal?.unitName || `${side}-${unit.slot}`;
+      const runtimeCombatant = modal?.runtimeCombatant || null;
+      const runtimeBaseCombatant = runtimeCombatant?.baseCombatant || null;
       return {
         unitId: buildUnitId(side, unit.slot, name),
         side,
@@ -317,8 +329,8 @@
         name,
         normalizedId: normalizeId(name),
         iconUrl: unit.iconUrl || modal?.iconUrl || heroPortrait || enemyPortrait || null,
-        heroClass: side === 'player' ? (profile?.mainClass || modal?.heroDetail?.heroClass || null) : null,
-        heroId: side === 'player' ? (portraitHeroId || null) : null,
+        heroClass: side === 'player' ? (profile?.mainClass || runtimeBaseCombatant?.mainClassStr || modal?.heroDetail?.heroClass || null) : null,
+        heroId: side === 'player' ? (portraitHeroId || runtimeBaseCombatant?.id || null) : null,
         currentHp: unit.hp ?? modal?.stats?.hp ?? null,
         maxHp: unit.maxHp ?? modal?.stats?.maxHp ?? null,
         currentMp: unit.mp ?? modal?.stats?.mp ?? null,
@@ -335,6 +347,19 @@
         stats: { ...(modal?.baseStats || {}), ...(modal?.stats || {}) },
         resistances: modal?.heroDetail?.resistances || {},
         heroDetail: modal?.heroDetail || null,
+        engineState: runtimeCombatant ? {
+          attackConfigs: runtimeCombatant.attackConfigs || [],
+          comboTrackers: runtimeCombatant.comboTrackers || [],
+          durationTracker: runtimeCombatant.durationTracker || null,
+          passiveTrackers: runtimeCombatant.passiveTrackers || [],
+          baseCombatant: runtimeBaseCombatant || null,
+          equipment: {
+            weaponConfigs: runtimeCombatant.weaponConfigs || [],
+            armorConfigs: runtimeCombatant.armorConfigs || [],
+            combatantAccessory: runtimeCombatant.combatantAccessory || null,
+            combatantOffhands: runtimeCombatant.combatantOffhands || [],
+          },
+        } : null,
         sourceConfidence: modal ? Math.max(modal.parseConfidence || 0, 0.7) : 0.55,
       };
     };
@@ -387,6 +412,7 @@
     const activeSide = resolvedActivePlayer ? 'player' : null;
     const selectedTargetUnit = combatants.find((unit) => unit.name === turnState.selectedTarget);
     const heroDetail = latestHeroDetailSnapshot();
+    const runtimeBattleData = turnState.runtimeBattleData || latestRuntimeBattleDataSnapshot() || null;
     const legalActions = (turnState.legalActions || []).map((action) => ({
       name: action.name,
       skillId: action.skillId || null,
@@ -426,6 +452,15 @@
         unitId: heroDetail.name ? buildUnitId('player', turnState.activeHeroSlot, heroDetail.name) : null,
         ...heroDetail,
       } : null,
+      predictionInputs: turnState.predictionInputs || (runtimeBattleData ? {
+        battleBudget: runtimeBattleData.battleBudget || null,
+        allowedAttacks: Array.isArray(runtimeBattleData.allowedAttacks) ? runtimeBattleData.allowedAttacks : [],
+        nextPlayTurn: runtimeBattleData.nextPlayTurn || null,
+        totalTicks: runtimeBattleData.totalTicks ?? null,
+        turnCount: runtimeBattleData.turnCount ?? null,
+        roundCount: runtimeBattleData.roundCount ?? null,
+        lastPlayedAttack: runtimeBattleData.lastPlayedAttack || null,
+      } : null),
       captureMeta: {
         version: COMBAT_FRAME_VERSION,
         huntId: sessionHuntId,
@@ -433,6 +468,7 @@
         source: source || 'dom',
         capturedAt: Date.now(),
         parserVersion: `extension/${COMBAT_FRAME_VERSION}`,
+        runtimeBattleData: runtimeBattleData || null,
         confidence: {
           combatants: combatants.length > 0 ? 0.75 : 0.2,
           activeTurn: legalActions.length > 0 ? 0.8 : 0.4,
