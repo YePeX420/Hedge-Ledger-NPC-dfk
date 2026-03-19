@@ -41,6 +41,7 @@ const DEFAULT_THEME: CombatAssetTheme = {
 
 const DFK_ASSET_BASE = 'https://game.defikingdoms.com/assets';
 const DFK_HERO_IMAGE_BASE = 'https://heroes.defikingdoms.com/image/1ae67f0a';
+const DFK_HERO_FRAME_IMAGE = `${DFK_ASSET_BASE}/in-game/Hero-Frame.png`;
 
 const DFK_ABILITY_IMAGE_MAP: Record<string, string> = {
   flurry: `${DFK_ASSET_BASE}/ability-icons/archer/flurry.png`,
@@ -50,11 +51,12 @@ const DFK_ABILITY_IMAGE_MAP: Record<string, string> = {
   repeating_shot: `${DFK_ASSET_BASE}/ability-icons/archer/repeatingshot.png`,
   blinding_winds: `${DFK_ASSET_BASE}/ability-icons/traits/blinding-winds.png`,
   deathmark: `${DFK_ASSET_BASE}/ability-icons/traits/deathmark.png`,
-  charm: `${DFK_ASSET_BASE}/ability-icons/traits/chatterbox.png`,
-  grunt: `${DFK_ASSET_BASE}/ability-icons/boar/grunt.png`,
-  head_butt: `${DFK_ASSET_BASE}/ability-icons/boar/headbutt.png`,
-  lil_gore: `${DFK_ASSET_BASE}/ability-icons/boar/lilgore.png`,
-  nuzzle: `${DFK_ASSET_BASE}/ability-icons/boar/nuzzle.png`,
+  charm: `${DFK_ASSET_BASE}/ability-icons/enemies/babyboar-ability.png`,
+  grunt: `${DFK_ASSET_BASE}/tracker-effects/enemy-indicators/grunt.png`,
+  head_butt: `${DFK_ASSET_BASE}/ability-icons/enemies/babyboar-ability.png`,
+  lil_gore: `${DFK_ASSET_BASE}/ability-icons/enemies/babyboar-ability.png`,
+  nuzzle: `${DFK_ASSET_BASE}/ability-icons/enemies/babyboar-ability.png`,
+  resilient: `${DFK_ASSET_BASE}/ability-icons/enemies/resilient.png`,
 };
 
 const DFK_HERO_CLASS_IMAGE_MAP: Record<string, string[]> = {
@@ -191,6 +193,12 @@ export function resolveCombatAssetImageUrls(
   return [];
 }
 
+function resolveHeroClassIconUrl(heroClass?: string | null) {
+  const key = normalizeKey(heroClass);
+  const candidates = DFK_HERO_CLASS_IMAGE_MAP[key] || [];
+  return candidates[0] || null;
+}
+
 export function CombatAssetChip({
   kind,
   name,
@@ -222,6 +230,54 @@ export function CombatAssetChip({
     : size === 'md'
     ? 'h-8 w-8 text-[11px]'
     : 'h-6 w-6 text-[10px]';
+  const heroSizing = size === 'xs'
+    ? { outer: 'h-6 w-6', inner: 'h-4 w-4', badge: 'h-2.5 w-2.5', badgeIcon: 'h-1.5 w-1.5', scale: 'scale-[2.1]', object: 'object-[center_18%]' }
+    : size === 'md'
+    ? { outer: 'h-10 w-10', inner: 'h-7 w-7', badge: 'h-4 w-4', badgeIcon: 'h-2.5 w-2.5', scale: 'scale-[2.15]', object: 'object-[center_18%]' }
+    : { outer: 'h-8 w-8', inner: 'h-5.5 w-5.5', badge: 'h-3 w-3', badgeIcon: 'h-2 w-2', scale: 'scale-[2.1]', object: 'object-[center_18%]' };
+  const heroClassIconUrl = kind === 'hero' ? resolveHeroClassIconUrl(secondaryLabel) : null;
+
+  if (kind === 'hero') {
+    return (
+      <span
+        className={cn('relative inline-flex shrink-0 items-center justify-center', heroSizing.outer, className)}
+        title={name}
+      >
+        <span className={cn('absolute inset-0 rounded-full overflow-hidden bg-slate-800/80', heroSizing.inner, 'm-auto')}>
+          {resolvedImageUrl ? (
+            <img
+              src={resolvedImageUrl}
+              alt={name}
+              className={cn('h-full w-full object-cover', heroSizing.scale, heroSizing.object)}
+              loading="lazy"
+              onError={() => setImageIndex((prev) => prev + 1)}
+            />
+          ) : (
+            <span className={cn('flex h-full w-full items-center justify-center', theme.bgClass, theme.textClass)}>
+              <Icon className={size === 'md' ? 'h-4 w-4' : 'h-3 w-3'} />
+            </span>
+          )}
+        </span>
+        <img
+          src={DFK_HERO_FRAME_IMAGE}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-contain pointer-events-none"
+        />
+        <span className={cn(
+          'absolute bottom-0 right-0 inline-flex items-center justify-center rounded-full border border-black/30 bg-emerald-500 shadow-sm overflow-hidden',
+          heroSizing.badge,
+        )}>
+          {heroClassIconUrl ? (
+            <img src={heroClassIconUrl} alt={secondaryLabel || ''} className={cn('object-contain', heroSizing.badgeIcon)} loading="lazy" />
+          ) : (
+            <Icon className={heroSizing.badgeIcon} />
+          )}
+        </span>
+        <span className="sr-only">{name}</span>
+      </span>
+    );
+  }
 
   return (
     <span

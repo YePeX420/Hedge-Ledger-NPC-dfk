@@ -85,6 +85,11 @@
     url: null,
     transport: null,
   };
+  let latestModalTurnOrder = {
+    entries: [],
+    capturedAt: 0,
+    turnNumber: null,
+  };
   let lastTurnOrderPrimeAt = 0;
   let turnOrderPrimeInFlight = false;
   let lastUserInteractionAt = Date.now();
@@ -938,9 +943,17 @@
       entries.push(buildEntry(name, parseFloat(ticksMatch[1]), entries.length || index));
     });
 
-    return entries
+    const normalizedEntries = entries
       .filter((entry, index, arr) => arr.findIndex((other) => other.unitId === entry.unitId && other.ticksUntilTurn === entry.ticksUntilTurn) === index)
       .slice(0, 12);
+    if (normalizedEntries.length > 0) {
+      latestModalTurnOrder = {
+        entries: normalizedEntries,
+        capturedAt: Date.now(),
+        turnNumber: currentTurnState?.turnNumber ?? null,
+      };
+    }
+    return normalizedEntries;
   }
 
   function resolveStripPlayerIdentity(heroImgUrl, playerOrdinal, overallOrdinal) {
@@ -1054,6 +1067,14 @@
     return [...merged, ...remaining].slice(0, 12).map((entry, ordinal) => ({ ...entry, ordinal }));
   }
 
+  function getFreshModalTurnOrder() {
+    const entries = Array.isArray(latestModalTurnOrder.entries) ? latestModalTurnOrder.entries : [];
+    if (entries.length === 0) return [];
+    const ageMs = Date.now() - (latestModalTurnOrder.capturedAt || 0);
+    if (ageMs > 30000) return [];
+    return entries;
+  }
+
   function readTurnOrder() {
     const recentNetworkEntries = Array.isArray(latestNetworkTurnOrder.entries) ? latestNetworkTurnOrder.entries : [];
     const networkIsFresh = recentNetworkEntries.length > 0 && (Date.now() - (latestNetworkTurnOrder.capturedAt || 0)) < 30000;
@@ -1066,15 +1087,17 @@
 
     const stripEntries = readTurnOrderStrip();
     const modalEntries = readTurnOrderModal();
-    const mergedEntries = mergeTurnOrderEntries(stripEntries, modalEntries);
+    const cachedModalEntries = modalEntries.length > 0 ? modalEntries : getFreshModalTurnOrder();
+    const mergedEntries = mergeTurnOrderEntries(stripEntries, cachedModalEntries);
     window.__dfkSelectorDiag.turn_order_source =
-      modalEntries.length > 0 && stripEntries.length > 0 ? 'strip+modal'
-      : modalEntries.length > 0 ? 'modal'
+      cachedModalEntries.length > 0 && stripEntries.length > 0 ? 'strip+modal'
+      : cachedModalEntries.length > 0 ? 'modal'
       : stripEntries.length > 0 ? 'strip'
       : 'none';
     window.__dfkSelectorDiag.turn_order_strip_count = stripEntries.length;
-    window.__dfkSelectorDiag.turn_order_modal_count = modalEntries.length;
-    if (modalEntries.length > 0) markTurnOrderCapturedForHunt();
+    window.__dfkSelectorDiag.turn_order_modal_count = cachedModalEntries.length;
+    window.__dfkSelectorDiag.turn_order_modal_age_ms = latestModalTurnOrder.capturedAt ? (Date.now() - latestModalTurnOrder.capturedAt) : null;
+    if (cachedModalEntries.length > 0) markTurnOrderCapturedForHunt();
     return mergedEntries;
   }
 
@@ -1113,7 +1136,10 @@
     }
     if (turnOrderPrimeInFlight) return;
     if (document.visibilityState === 'hidden') return;
-    if (hasCapturedTurnOrderForHunt()) {
+    const freshModalEntries = getFreshModalTurnOrder();
+    const freshModalTurnNumber = latestModalTurnOrder.turnNumber;
+    const currentTurnNumber = currentTurnState?.turnNumber ?? null;
+    if (hasCapturedTurnOrderForHunt() && freshModalEntries.length > 0 && (freshModalTurnNumber == null || currentTurnNumber == null || freshModalTurnNumber === currentTurnNumber)) {
       window.__dfkSelectorDiag.turn_order_auto_prime_complete = true;
       return;
     }
@@ -1223,6 +1249,7 @@
             source: window.__dfkSelectorDiag.turn_order_source || null,
             stripCount: window.__dfkSelectorDiag.turn_order_strip_count ?? null,
             modalCount: window.__dfkSelectorDiag.turn_order_modal_count ?? null,
+            modalAgeMs: window.__dfkSelectorDiag.turn_order_modal_age_ms ?? null,
             networkCount: window.__dfkSelectorDiag.turn_order_network_count ?? null,
             transport: window.__dfkSelectorDiag.turn_order_transport || null,
             autoPrimeAt: window.__dfkSelectorDiag.turn_order_auto_prime_at || null,

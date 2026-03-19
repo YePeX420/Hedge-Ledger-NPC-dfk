@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { apiRequest } from '@/lib/queryClient';
 import { CombatAssetChip, formatCombatName } from '@/lib/dfk-combat-icons';
 import { computeCalculatedCombatSnapshot } from '@/lib/dfk-combat-formulas';
@@ -575,7 +576,23 @@ function mergeCombatFrames(
   if (!prev) return next;
   const prevTurnOrder = prev.turnOrder || [];
   const nextTurnOrder = next.turnOrder || [];
-  const mergedTurnOrder = nextTurnOrder.length > 0 ? nextTurnOrder : prevTurnOrder;
+  const mergedTurnOrder = nextTurnOrder.length > 0
+    ? nextTurnOrder.map((row, index) => {
+        const prevMatch =
+          prevTurnOrder.find((candidate) => candidate.unitId === row.unitId) ||
+          prevTurnOrder.find((candidate) => normalizeLookupKey(candidate.name) === normalizeLookupKey(row.name)) ||
+          prevTurnOrder[index] ||
+          null;
+        return {
+          ...row,
+          ticksUntilTurn: row.ticksUntilTurn != null ? row.ticksUntilTurn : (prevMatch?.ticksUntilTurn ?? null),
+          heroId: row.heroId || prevMatch?.heroId || null,
+          heroClass: row.heroClass || prevMatch?.heroClass || null,
+          level: row.level ?? prevMatch?.level ?? null,
+          iconUrl: row.iconUrl || prevMatch?.iconUrl || null,
+        };
+      })
+    : prevTurnOrder;
   const mergedCombatants = (next.combatants || []).map((unit) => {
     const prevUnit = (prev.combatants || []).find((candidate) => candidate.unitId === unit.unitId);
     return {
@@ -716,7 +733,7 @@ function findCombatantByActorLabel(
 }
 
 function HpBar({ current, max, label, color }: { current: number; max: number; label: string; color: string }) {
-  const pct = max > 0 ? Math.round((current / max) * 100) : 0;
+  const pct = max > 0 ? Math.max(0, Math.min(100, (current / max) * 100)) : 0;
   const barColor = pct > 60 ? 'bg-green-500' : pct > 30 ? 'bg-amber-500' : 'bg-red-500';
   return (
     <div className="space-y-0.5" data-testid={`hp-bar-${label}`}>
@@ -724,8 +741,11 @@ function HpBar({ current, max, label, color }: { current: number; max: number; l
         <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{label}</span>
         <span className="text-[10px] font-mono text-muted-foreground">{current}/{max}</span>
       </div>
-      <div className="h-2 rounded-full bg-muted/40 overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-300 ${color || barColor}`} style={{ width: `${pct}%` }} />
+      <div className="h-2 rounded-full overflow-hidden border border-black/30 bg-zinc-700/90 shadow-inner">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${color || barColor}`}
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   );
@@ -734,16 +754,30 @@ function HpBar({ current, max, label, color }: { current: number; max: number; l
 function StatusBadges({ statuses }: { statuses: StatusInstance[] | undefined }) {
   if (!statuses || statuses.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-1 mt-1">
-      {statuses.map((status) => (
-        <Badge key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}`} variant="secondary" className="text-[9px] inline-flex items-center gap-1">
-          <CombatAssetChip kind="status" name={status.name} imageUrl={status.iconUrl} size="xs" />
-          {formatCombatName(status.name)}
-          {status.stacks ? ` x${status.stacks}` : ''}
-          {status.durationTurns ? ` ${status.durationTurns}t` : ''}
-        </Badge>
-      ))}
-    </div>
+    <TooltipProvider delayDuration={120}>
+      <div className="flex flex-wrap gap-1 mt-1">
+        {statuses.map((status) => {
+          const tooltip = getStatusTooltipMeta(status);
+          return (
+            <Tooltip key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}`}>
+              <TooltipTrigger asChild>
+                <Badge variant="secondary" className="text-[9px] inline-flex items-center gap-1 cursor-help">
+                  <CombatAssetChip kind="status" name={status.name} imageUrl={status.iconUrl} size="xs" />
+                  {formatCombatName(status.name)}
+                  {status.stacks ? ` x${status.stacks}` : ''}
+                  {status.durationTurns ? ` ${status.durationTurns}t` : ''}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[220px] space-y-1">
+                <p className="text-xs font-semibold">{tooltip.title}</p>
+                <p className="text-[11px] text-muted-foreground">{tooltip.body}</p>
+                {tooltip.note && <p className="text-[11px] text-muted-foreground">{tooltip.note}</p>}
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -762,6 +796,30 @@ function formatStatLabel(key: string) {
   return String(key || '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+const STATUS_DESCRIPTION_MAP: Record<string, { title?: string; body: string; note?: string }> = {
+  grunt: { title: 'Boar Attack Buff', body: 'Gain +30% ATTACK for 1 turn.', note: 'Can be dispelled.' },
+  amnesia: { body: 'Prevents or disrupts ability usage.' },
+  daze: { body: 'Temporarily impairs action flow and combat tempo.' },
+  resist_generic: { title: 'Resistance Trigger', body: 'An effect was resisted or mitigated by the target.' },
+  bleed: { body: 'Damage over time effect.' },
+  blind: { body: 'Reduces hit reliability and can cause attacks to miss.' },
+  burn: { body: 'Damage over time effect.' },
+  poison: { body: 'Damage over time effect.' },
+  taunt: { body: 'Forces or biases targeting toward the affected unit.' },
+};
+
+function getStatusTooltipMeta(status: StatusInstance) {
+  const key = normalizeLookupKey(status.id || status.name);
+  const mapped = STATUS_DESCRIPTION_MAP[key] || STATUS_DESCRIPTION_MAP[normalizeLookupKey(status.name)];
+  const title = mapped?.title || formatCombatName(status.name);
+  const body = mapped?.body || `${formatCombatName(status.name)} is currently active.`;
+  const noteParts: string[] = [];
+  if (mapped?.note) noteParts.push(mapped.note);
+  if (status.stacks) noteParts.push(`Stacks: ${status.stacks}`);
+  if (status.durationTurns) noteParts.push(`Duration: ${status.durationTurns} turn${status.durationTurns === 1 ? '' : 's'}`);
+  return { title, body, note: noteParts.join(' • ') };
 }
 
 function DetailMetricGrid({
@@ -1298,6 +1356,11 @@ function TurnOrderPanel({
           {rows.map((row) => {
             const combatant = combatFrame?.combatants.find((unit) => unit.unitId === row.unitId) || null;
             const fallbackHero = row.side === 'player' ? (heroes[playerRowIndex++] || null) : null;
+            const displayName = fallbackHero?.name || combatant?.name || row.name;
+            const displayHeroClass = row.heroClass || combatant?.heroClass || fallbackHero?.mainClass || null;
+            const displayHeroId = row.heroId || combatant?.heroId || fallbackHero?.heroId || null;
+            const displayIconUrl = row.iconUrl || combatant?.iconUrl || fallbackHero?.iconUrl || null;
+            const displayLevel = row.level ?? fallbackHero?.level ?? combatant?.heroDetail?.level ?? null;
             const calculated = computeCalculatedCombatSnapshot(
               combatant?.heroDetail?.baseStats || combatant?.stats || null,
               avgPartyLevel,
@@ -1307,18 +1370,18 @@ function TurnOrderPanel({
               <div className="flex items-center gap-2 min-w-0">
                 <CombatAssetChip
                   kind={row.side === 'player' ? 'hero' : 'enemy'}
-                  name={fallbackHero?.mainClass || row.name}
-                  secondaryLabel={row.heroClass || fallbackHero?.mainClass || combatant?.heroClass || null}
-                  heroId={row.heroId || fallbackHero?.heroId || combatant?.heroId || null}
-                  imageUrl={row.iconUrl || combatant?.iconUrl || fallbackHero?.iconUrl || null}
+                  name={displayName}
+                  secondaryLabel={displayHeroClass}
+                  heroId={displayHeroId}
+                  imageUrl={displayIconUrl}
                   size="xs"
                 />
                 <div className="min-w-0">
                   <span className={cn('truncate block', row.side === 'player' ? 'text-blue-400' : 'text-red-400')}>
                     {formatCombatantTurnLabel({
-                      name: fallbackHero?.mainClass || row.name,
-                      heroClass: row.heroClass || combatant?.heroClass || null,
-                      level: row.level ?? fallbackHero?.level ?? combatant?.heroDetail?.level ?? null,
+                      name: displayName,
+                      heroClass: displayHeroClass,
+                      level: displayLevel,
                     })}
                   </span>
                   {calculated && (
