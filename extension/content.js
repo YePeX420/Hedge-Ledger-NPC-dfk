@@ -27,10 +27,18 @@
   let syntheticKeyGenerated = false;
   const COMBAT_FRAME_VERSION = 1;
   let extensionContextStale = false;
+  let companionState = {
+    selectedCompanionSessionId: null,
+    requiresTabRefresh: false,
+    websocketStatus: null,
+    isJoined: false,
+    huntId: null,
+  };
 
   window.__dfkSessionId = null;
   window.__dfkSessionIdSource = null;
   window.__dfkLastRecommendation = null;
+  window.__dfkCompanionState = { ...companionState };
 
   function isDuplicate(event) {
     const now = Date.now();
@@ -92,6 +100,30 @@
       }
       return Promise.resolve(false);
     }
+  }
+
+  async function getRuntimeStatus() {
+    if (!runtimeReady()) return null;
+    try {
+      return await chrome.runtime.sendMessage({ type: 'get_status' });
+    } catch (err) {
+      if (isInvalidRuntimeError(err)) {
+        markExtensionContextStale(err.message || err);
+      }
+      return null;
+    }
+  }
+
+  function applyCompanionState(state) {
+    companionState = {
+      ...companionState,
+      selectedCompanionSessionId: state?.selectedCompanionSessionId || null,
+      requiresTabRefresh: !!state?.requiresTabRefresh,
+      websocketStatus: state?.status || state?.websocketStatus || null,
+      isJoined: state?.isJoined === true || state?.joined === true,
+      huntId: state?.huntId || null,
+    };
+    window.__dfkCompanionState = { ...companionState };
   }
 
   function safeStorageGet(keys, callback) {
@@ -884,6 +916,10 @@
       });
     });
 
+    getRuntimeStatus().then((status) => {
+      if (status) applyCompanionState(status);
+    });
+
     installSpaHooks();
 
     setInterval(window.__dfkDetectSession, 3000);
@@ -917,6 +953,8 @@
     if (msg.type === 'debug_mode_changed') {
       debugMode = msg.enabled;
       window.__dfkDebugMode = debugMode;
+    } else if (msg.type === 'extension_state_update') {
+      applyCompanionState(msg);
     } else if (msg.type === 'hero_profile_loaded') {
       applyHeroProfiles(msg.heroes);
     } else if (msg.type === 'execute_companion_action') {

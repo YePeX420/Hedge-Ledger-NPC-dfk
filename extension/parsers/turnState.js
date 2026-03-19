@@ -90,6 +90,15 @@
     capturedAt: 0,
     battleData: null,
     turnNumber: null,
+    playerTurnKey: null,
+    rootEl: null,
+    containerRef: null,
+    selectedTurnKey: null,
+    turnsSignature: null,
+    battleDataSignature: null,
+    source: null,
+    metrics: null,
+    invalidationReason: null,
   };
   let latestModalTurnOrder = {
     entries: [],
@@ -101,6 +110,13 @@
   let lastUserInteractionAt = Date.now();
   let lastCommandPanelDebug = null;
   const ENABLE_TURN_ORDER_AUTO_PRIME = true;
+  const TURN_ORDER_RUNTIME_TTL_MS = 15000;
+  const TURN_ORDER_AUTO_PRIME_BACKSTOP_MS = 30000;
+  let runtimeTurnOrderCacheHitCount = 0;
+  let runtimeTurnOrderDeepFindCount = 0;
+  let latestRuntimeTurnOrderMetrics = null;
+  let lastRuntimeInvalidationReason = null;
+  let lastPlayerTurnRefreshTriggered = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -290,6 +306,44 @@
       const key = turnOrderCaptureKey();
       if (key) window.sessionStorage.setItem(key, '1');
     } catch (_) {}
+  }
+
+  function getCompanionState() {
+    return (typeof window !== 'undefined' && window.__dfkCompanionState && typeof window.__dfkCompanionState === 'object')
+      ? window.__dfkCompanionState
+      : {};
+  }
+
+  function hasActiveCompanionSessionForCurrentHunt() {
+    const state = getCompanionState();
+    const selectedSessionId = state.selectedCompanionSessionId || null;
+    if (!selectedSessionId) return false;
+    if (state.requiresTabRefresh) return false;
+    const huntId = state.huntId || null;
+    const currentHunt = currentHuntKey() || window.__dfkSessionId || null;
+    return !huntId || !currentHunt || String(huntId) === String(currentHunt);
+  }
+
+  function isTurnOrderCacheFresh(cache) {
+    const entries = Array.isArray(cache?.entries) ? cache.entries : [];
+    if (entries.length === 0) return false;
+    const ageMs = Date.now() - (cache?.capturedAt || 0);
+    return ageMs <= TURN_ORDER_RUNTIME_TTL_MS;
+  }
+
+  function hasFreshTicksForTurn(cache, turnNumber) {
+    if (!isTurnOrderCacheFresh(cache)) return false;
+    if (turnNumber != null && cache?.turnNumber != null && Number(cache.turnNumber) !== Number(turnNumber)) return false;
+    return (cache.entries || []).some((entry) => entry?.ticksUntilTurn != null);
+  }
+
+  function buildPlayerTurnKey(turnNumber, activeUnit) {
+    if (!activeUnit) return null;
+    return [
+      turnNumber ?? 'na',
+      activeUnit.slot ?? 'na',
+      normalizedName(activeUnit.name || 'player'),
+    ].join(':');
   }
 
   function extractHpMp(el) {
@@ -1056,9 +1110,19 @@
 
   function readTurnOrderRuntime(heroes, enemies) {
     const root = findTurnOrderModalRoot();
-    if (!root || !window.__dfkReactRuntime?.extractTurnOrderRuntime) return [];
-    const runtime = window.__dfkReactRuntime.extractTurnOrderRuntime(root);
+    if (!root || !window.__dfkReactRuntime?.extractTurnOrderRuntimeCached) return [];
+    const runtimeResult = window.__dfkReactRuntime.extractTurnOrderRuntimeCached(root, latestRuntimeTurnOrder);
+    latestRuntimeTurnOrderMetrics = runtimeResult?.metrics || null;
+    if (runtimeResult?.metrics?.cacheHit) runtimeTurnOrderCacheHitCount += 1;
+    if (runtimeResult?.metrics?.usedDeepFind) runtimeTurnOrderDeepFindCount += 1;
+    if (runtimeResult?.invalidationReason) {
+      lastRuntimeInvalidationReason = runtimeResult.invalidationReason;
+    }
+    const runtime = runtimeResult?.runtime || null;
     if (!runtime || !Array.isArray(runtime.turns) || runtime.turns.length === 0) return [];
+    const runtimeSource = runtimeResult?.metrics?.cacheHit && !runtimeResult?.metrics?.usedDeepFind
+      ? 'runtime_cached'
+      : 'runtime_fresh';
 
     let playerOrdinal = 0;
     let enemyOrdinal = 0;
@@ -1074,16 +1138,20 @@
         totalTicks: turn.totalTicks != null ? turn.totalTicks : null,
         turnType: turn.turnType != null ? turn.turnType : null,
         ordinal,
-        source: 'runtime',
+        source: runtimeSource,
       };
     }).filter(Boolean);
 
     if (entries.length > 0) {
       latestRuntimeTurnOrder = {
+        ...(runtimeResult?.cache || {}),
         entries,
         capturedAt: Date.now(),
         battleData: summarizeBattleDataForPrediction(runtime.battleData),
         turnNumber: currentTurnState?.turnNumber ?? null,
+        source: runtimeSource,
+        metrics: runtimeResult?.metrics || null,
+        invalidationReason: runtimeResult?.invalidationReason || null,
       };
     }
 
@@ -1271,24 +1339,25 @@
   }
 
   function getFreshRuntimeTurnOrder() {
-    const entries = Array.isArray(latestRuntimeTurnOrder.entries) ? latestRuntimeTurnOrder.entries : [];
-    if (entries.length === 0) return [];
-    const ageMs = Date.now() - (latestRuntimeTurnOrder.capturedAt || 0);
-    if (ageMs > 30000) return [];
-    return entries;
+    if (!isTurnOrderCacheFresh(latestRuntimeTurnOrder)) return [];
+    return (latestRuntimeTurnOrder.entries || []).map((entry) => ({
+      ...entry,
+      source: 'runtime_cached',
+    }));
   }
 
   function getFreshModalTurnOrder() {
     const entries = Array.isArray(latestModalTurnOrder.entries) ? latestModalTurnOrder.entries : [];
     if (entries.length === 0) return [];
     const ageMs = Date.now() - (latestModalTurnOrder.capturedAt || 0);
-    if (ageMs > 30000) return [];
+    if (ageMs > TURN_ORDER_RUNTIME_TTL_MS) return [];
     return entries;
   }
 
   function readTurnOrder(heroes, enemies) {
     const runtimeEntries = readTurnOrderRuntime(heroes, enemies);
-    const cachedRuntimeEntries = runtimeEntries.length > 0 ? runtimeEntries : getFreshRuntimeTurnOrder();
+    const runtimeWasReadThisCycle = runtimeEntries.length > 0;
+    const cachedRuntimeEntries = runtimeWasReadThisCycle ? runtimeEntries : getFreshRuntimeTurnOrder();
     const stripEntries = readTurnOrderStrip(heroes, enemies);
     const modalEntries = readTurnOrderModal();
     const cachedModalEntries = modalEntries.length > 0 ? modalEntries : getFreshModalTurnOrder();
@@ -1298,11 +1367,17 @@
       if (cachedModalEntries.length > 0) {
         mergedRuntimeEntries = mergeTurnOrderEntries(mergedRuntimeEntries, cachedModalEntries);
       }
-      window.__dfkSelectorDiag.turn_order_source = cachedModalEntries.length > 0 ? 'runtime+modal' : 'runtime';
+      window.__dfkSelectorDiag.turn_order_source = cachedModalEntries.length > 0
+        ? 'runtime+modal'
+        : (runtimeWasReadThisCycle ? (latestRuntimeTurnOrder.source || 'runtime_fresh') : 'runtime_cached');
       window.__dfkSelectorDiag.turn_order_runtime_count = cachedRuntimeEntries.length;
       window.__dfkSelectorDiag.turn_order_runtime_age_ms = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
       window.__dfkSelectorDiag.turn_order_runtime_resolved_count = mergedRuntimeEntries.filter((entry) => !/^Hero\s+\d+/i.test(entry.name || '')).length;
       window.__dfkSelectorDiag.turn_order_runtime_unresolved_count = mergedRuntimeEntries.filter((entry) => /^Hero\s+\d+/i.test(entry.name || '')).length;
+      window.__dfkSelectorDiag.runtime_turn_order_metrics = latestRuntimeTurnOrderMetrics || null;
+      window.__dfkSelectorDiag.runtime_cache_hit_count = runtimeTurnOrderCacheHitCount;
+      window.__dfkSelectorDiag.runtime_deep_find_count = runtimeTurnOrderDeepFindCount;
+      window.__dfkSelectorDiag.last_runtime_invalidation_reason = lastRuntimeInvalidationReason || null;
       window.__dfkSelectorDiag.turn_order_strip_count = stripEntries.length;
       window.__dfkSelectorDiag.turn_order_modal_count = cachedModalEntries.length;
       window.__dfkSelectorDiag.turn_order_modal_age_ms = latestModalTurnOrder.capturedAt ? (Date.now() - latestModalTurnOrder.capturedAt) : null;
@@ -1327,6 +1402,10 @@
       : 'none';
     window.__dfkSelectorDiag.turn_order_runtime_count = cachedRuntimeEntries.length;
     window.__dfkSelectorDiag.turn_order_runtime_age_ms = latestRuntimeTurnOrder.capturedAt ? (Date.now() - latestRuntimeTurnOrder.capturedAt) : null;
+    window.__dfkSelectorDiag.runtime_turn_order_metrics = latestRuntimeTurnOrderMetrics || null;
+    window.__dfkSelectorDiag.runtime_cache_hit_count = runtimeTurnOrderCacheHitCount;
+    window.__dfkSelectorDiag.runtime_deep_find_count = runtimeTurnOrderDeepFindCount;
+    window.__dfkSelectorDiag.last_runtime_invalidation_reason = lastRuntimeInvalidationReason || null;
     window.__dfkSelectorDiag.turn_order_strip_count = stripEntries.length;
     window.__dfkSelectorDiag.turn_order_modal_count = cachedModalEntries.length;
     window.__dfkSelectorDiag.turn_order_modal_age_ms = latestModalTurnOrder.capturedAt ? (Date.now() - latestModalTurnOrder.capturedAt) : null;
@@ -1362,6 +1441,12 @@
       }) || null;
   }
 
+  function hasFreshTurnOrderTicksForCurrentTurn() {
+    const currentTurnNumber = currentTurnState?.turnNumber ?? null;
+    return hasFreshTicksForTurn(latestRuntimeTurnOrder, currentTurnNumber) ||
+      hasFreshTicksForTurn(latestModalTurnOrder, currentTurnNumber);
+  }
+
   function tryAutoPrimeTurnOrder() {
     if (!ENABLE_TURN_ORDER_AUTO_PRIME) {
       window.__dfkSelectorDiag.turn_order_auto_prime_disabled = true;
@@ -1369,23 +1454,27 @@
     }
     if (turnOrderPrimeInFlight) return;
     if (document.visibilityState === 'hidden') return;
-    const freshRuntimeEntries = getFreshRuntimeTurnOrder();
-    const freshRuntimeTurnNumber = latestRuntimeTurnOrder.turnNumber;
-    const freshModalEntries = getFreshModalTurnOrder();
-    const freshModalTurnNumber = latestModalTurnOrder.turnNumber;
-    const currentTurnNumber = currentTurnState?.turnNumber ?? null;
-    if (hasCapturedTurnOrderForHunt() &&
-        (freshRuntimeEntries.length > 0 || freshModalEntries.length > 0) &&
-        (
-          (freshRuntimeTurnNumber == null || currentTurnNumber == null || freshRuntimeTurnNumber === currentTurnNumber) ||
-          (freshModalTurnNumber == null || currentTurnNumber == null || freshModalTurnNumber === currentTurnNumber)
-        )) {
+    if (!hasActiveCompanionSessionForCurrentHunt()) {
+      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'inactive_companion_session';
+      return;
+    }
+    if (!currentTurnState?.isPlayerTurnActive || !currentTurnState?.playerTurnKey) return;
+    if (!currentTurnState?.playerTurnJustActivated) {
+      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'player_turn_unchanged';
+      return;
+    }
+    if (lastPlayerTurnRefreshTriggered === currentTurnState.playerTurnKey) {
+      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'already_refreshed_player_turn';
+      return;
+    }
+    if (hasFreshTurnOrderTicksForCurrentTurn()) {
       window.__dfkSelectorDiag.turn_order_auto_prime_complete = true;
       return;
     }
-    if ((Date.now() - lastTurnOrderPrimeAt) < 30000) return;
-    if (readTurnOrderRuntime(currentTurnState.heroes || [], currentTurnState.enemies || []).length > 0) return;
-    if (readTurnOrderModal().length > 0) return;
+    if ((Date.now() - lastTurnOrderPrimeAt) < TURN_ORDER_AUTO_PRIME_BACKSTOP_MS) {
+      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'backstop_interval';
+      return;
+    }
     if ((Date.now() - lastUserInteractionAt) < 4000) {
       window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'recent_interaction';
       return;
@@ -1396,8 +1485,11 @@
 
     turnOrderPrimeInFlight = true;
     lastTurnOrderPrimeAt = Date.now();
+    lastPlayerTurnRefreshTriggered = currentTurnState.playerTurnKey;
     window.__dfkSelectorDiag.turn_order_auto_prime_at = lastTurnOrderPrimeAt;
     window.__dfkSelectorDiag.turn_order_auto_prime_count = buttons.length;
+    window.__dfkSelectorDiag.player_turn_refresh_triggered = currentTurnState.playerTurnKey;
+    window.__dfkSelectorDiag.turn_order_auto_prime_reason = 'player_turn_refresh';
 
     try {
       buttons[0].click();
@@ -1414,6 +1506,9 @@
     window.setTimeout(() => {
       if (readTurnOrderRuntime(currentTurnState.heroes || [], currentTurnState.enemies || []).length > 0 || readTurnOrderModal().length > 0) {
         markTurnOrderCapturedForHunt();
+        if (currentTurnState?.playerTurnKey) {
+          latestRuntimeTurnOrder.playerTurnKey = currentTurnState.playerTurnKey;
+        }
       }
       const closeBtn = findVisibleCloseButton();
       if (closeBtn) {
@@ -1454,6 +1549,13 @@
     const battleBudgetRemaining = readBattleBudget(commandPanel);
     const legalConsumables = readConsumables(commandPanel);
     const enemyEffectsByName = readEnemyStatusEffects();
+    const panelHeroName = inferHeroNameFromPanel(commandPanel);
+    const isPlayerTurnActive = !!(commandPanel && isVisible(commandPanel) && (panelHeroName || legalActions.length > 0 || legalConsumables.length > 0));
+    const playerTurnKey = isPlayerTurnActive
+      ? buildPlayerTurnKey(currentTurnState.turnNumber, activeUnit || { name: panelHeroName || currentTurnState.activeUnit, slot: activeUnit?.slot ?? currentTurnState.activeHeroSlot })
+      : null;
+    const playerTurnJustActivated = isPlayerTurnActive &&
+      (!currentTurnState.isPlayerTurnActive || playerTurnKey !== currentTurnState.playerTurnKey);
 
     enemies.forEach((enemy) => {
       const effects = enemyEffectsByName[normalizedName(enemy.name)] || [];
@@ -1474,6 +1576,9 @@
       enemies,
       battleBudgetRemaining,
       turnOrder,
+      isPlayerTurnActive,
+      playerTurnKey,
+      playerTurnJustActivated,
       runtimeBattleData: latestRuntimeTurnOrder.battleData || null,
       predictionInputs: latestRuntimeTurnOrder.battleData ? {
         battleBudget: latestRuntimeTurnOrder.battleData.battleBudget || null,
@@ -1501,6 +1606,10 @@
             runtimeAgeMs: window.__dfkSelectorDiag.turn_order_runtime_age_ms ?? null,
             resolvedCount: window.__dfkSelectorDiag.turn_order_runtime_resolved_count ?? null,
             unresolvedCount: window.__dfkSelectorDiag.turn_order_runtime_unresolved_count ?? null,
+            runtimeMetrics: window.__dfkSelectorDiag.runtime_turn_order_metrics || null,
+            runtimeCacheHitCount: window.__dfkSelectorDiag.runtime_cache_hit_count ?? null,
+            runtimeDeepFindCount: window.__dfkSelectorDiag.runtime_deep_find_count ?? null,
+            lastRuntimeInvalidationReason: window.__dfkSelectorDiag.last_runtime_invalidation_reason || null,
             stripCount: window.__dfkSelectorDiag.turn_order_strip_count ?? null,
             modalCount: window.__dfkSelectorDiag.turn_order_modal_count ?? null,
             modalAgeMs: window.__dfkSelectorDiag.turn_order_modal_age_ms ?? null,
@@ -1509,6 +1618,7 @@
             autoPrimeAt: window.__dfkSelectorDiag.turn_order_auto_prime_at || null,
             autoPrimeCount: window.__dfkSelectorDiag.turn_order_auto_prime_count ?? null,
             autoPrimeSkipped: window.__dfkSelectorDiag.turn_order_auto_prime_skipped || null,
+            playerTurnRefreshTriggered: window.__dfkSelectorDiag.player_turn_refresh_triggered || null,
           },
           runtimeTurnOrderSample: (latestRuntimeTurnOrder.entries || []).slice(0, 6),
           runtimeBattleDataSample: latestRuntimeTurnOrder.battleData || null,

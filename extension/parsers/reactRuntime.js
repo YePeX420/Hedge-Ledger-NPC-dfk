@@ -7,6 +7,8 @@
 (function () {
   if (typeof window.__dfkReactRuntime !== 'undefined') return;
 
+  const RUNTIME_CACHE_TTL_MS = 15000;
+
   function isObject(value) {
     return !!value && typeof value === 'object';
   }
@@ -111,7 +113,7 @@
     return children;
   }
 
-  function deepFind(seedValues, predicate, maxNodes = 6000) {
+  function deepFind(seedValues, predicate, maxNodes = 6000, metrics) {
     const queue = Array.isArray(seedValues) ? [...seedValues] : [seedValues];
     const visited = new Set();
     while (queue.length > 0 && visited.size < maxNodes) {
@@ -130,7 +132,64 @@
         if (!visited.has(child)) queue.push(child);
       });
     }
+    if (metrics) metrics.visitedNodes = visited.size;
     return null;
+  }
+
+  function nowMs() {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now();
+  }
+
+  function buildTurnEntryKey(entry) {
+    if (!entry) return 'na';
+    return [
+      entry.side ?? 'na',
+      entry.slot ?? 'na',
+      entry.ticks ?? 'na',
+      entry.totalTicks ?? 'na',
+      entry.turnType ?? 'na',
+    ].join(':');
+  }
+
+  function buildSelectedTurnKey(entry) {
+    return entry ? buildTurnEntryKey(entry) : 'none';
+  }
+
+  function buildBattleDataSignature(battleData) {
+    if (!battleData || typeof battleData !== 'object') return 'none';
+    return [
+      battleData.sessionId || '',
+      battleData.scenarioId || '',
+      battleData.turnCount ?? '',
+      battleData.roundCount ?? '',
+      battleData.totalTicks ?? '',
+      battleData.lastPlayedAttack || '',
+      JSON.stringify(battleData.nextPlayTurn || null),
+    ].join('|');
+  }
+
+  function buildCombatantKey(runtime) {
+    const baseCombatant = runtime?.baseCombatant || null;
+    const location = runtime?.currentLocation || {};
+    if (baseCombatant?.id) return `id:${baseCombatant.id}`;
+    if (baseCombatant?.name) {
+      return `name:${String(baseCombatant.name).toLowerCase().replace(/[^a-z0-9]+/g, '_')}:${
+        location.side ?? 'na'
+      }`;
+    }
+    return 'unknown';
+  }
+
+  function createRuntimeMetrics() {
+    return {
+      cacheHit: false,
+      usedContainerRef: false,
+      usedDeepFind: false,
+      visitedNodes: 0,
+      durationMs: 0,
+    };
   }
 
   function simplifyFirestoreValue(node, depth = 0) {
@@ -181,23 +240,92 @@
     };
   }
 
-  function extractTurnOrderRuntime(rootEl) {
-    const seeds = getReactSeedsFromNode(rootEl);
-    const container = deepFind(seeds, isTurnOrderContainer, 7000);
-    if (!container) return null;
-
+  function extractTurnOrderRuntimeFromContainer(container, metrics) {
+    if (!isTurnOrderContainer(container)) return null;
     const turns = Array.isArray(container.data?.turns)
       ? container.data.turns.map(simplifyTurnEntry).filter(Boolean)
       : [];
     const selectedTurn = container.data?.selectedTurn ? simplifyTurnEntry(container.data.selectedTurn) : null;
     const battleData = extractBattleDataFields(container.data?.battleData);
-
     return {
       type: container.type || 'TurnOrder',
       isOpen: container.isOpen !== false,
       turns,
       selectedTurn,
       battleData,
+      metrics: metrics || createRuntimeMetrics(),
+    };
+  }
+
+  function extractTurnOrderRuntimeCached(rootEl, previousCache) {
+    const startedAt = nowMs();
+    const metrics = createRuntimeMetrics();
+    let invalidationReason = null;
+    let container = null;
+
+    if (!rootEl) {
+      metrics.durationMs = nowMs() - startedAt;
+      return { runtime: null, cache: null, metrics, invalidationReason: 'no_root' };
+    }
+
+    if (previousCache?.rootEl && previousCache.rootEl !== rootEl) {
+      invalidationReason = 'root_changed';
+    }
+
+    if (previousCache?.containerRef && previousCache.rootEl === rootEl && isTurnOrderContainer(previousCache.containerRef)) {
+      container = previousCache.containerRef;
+      metrics.cacheHit = true;
+      metrics.usedContainerRef = true;
+    }
+
+    if (!container) {
+      const seeds = getReactSeedsFromNode(rootEl);
+      metrics.usedDeepFind = true;
+      container = deepFind(seeds, isTurnOrderContainer, 7000, metrics);
+      if (!container && !invalidationReason) invalidationReason = 'container_not_found';
+    }
+
+    const runtime = extractTurnOrderRuntimeFromContainer(container, metrics);
+    if (!runtime || !Array.isArray(runtime.turns) || runtime.turns.length === 0) {
+      metrics.durationMs = nowMs() - startedAt;
+      return {
+        runtime: null,
+        cache: null,
+        metrics,
+        invalidationReason: invalidationReason || 'empty_turns',
+      };
+    }
+
+    const turnsSignature = runtime.turns.map(buildTurnEntryKey).join('|');
+    const selectedTurnKey = buildSelectedTurnKey(runtime.selectedTurn);
+    const battleDataSignature = buildBattleDataSignature(runtime.battleData);
+    const previousAgeMs = previousCache?.capturedAt ? Date.now() - previousCache.capturedAt : null;
+    if (!invalidationReason && previousCache) {
+      if (previousCache.turnsSignature && previousCache.turnsSignature !== turnsSignature) invalidationReason = 'turns_changed';
+      else if (previousCache.selectedTurnKey && previousCache.selectedTurnKey !== selectedTurnKey) invalidationReason = 'selected_turn_changed';
+      else if (previousCache.battleDataSignature && previousCache.battleDataSignature !== battleDataSignature) invalidationReason = 'battle_data_changed';
+      else if (previousAgeMs != null && previousAgeMs > RUNTIME_CACHE_TTL_MS) invalidationReason = 'cache_expired';
+    }
+
+    metrics.durationMs = nowMs() - startedAt;
+    const cache = {
+      rootEl,
+      containerRef: container,
+      capturedAt: Date.now(),
+      selectedTurnKey,
+      turnsSignature,
+      battleDataSignature,
+      entries: runtime.turns,
+      battleData: runtime.battleData,
+    };
+    return {
+      runtime: {
+        ...runtime,
+        metrics,
+      },
+      cache,
+      metrics,
+      invalidationReason,
     };
   }
 
@@ -323,11 +451,8 @@
     };
   }
 
-  function extractCombatantRuntime(rootEl) {
-    const seeds = getReactSeedsFromNode(rootEl);
-    const combatant = deepFind(seeds, isCombatantContainer, 9000);
-    if (!combatant) return null;
-
+  function extractCombatantRuntimeFromContainer(combatant, metrics) {
+    if (!isCombatantContainer(combatant)) return null;
     const heroState = combatant.heroState || {};
     return {
       baseCombatant: simplifyBaseCombatant(combatant.baseCombatant || heroState.baseCombatant),
@@ -358,13 +483,92 @@
         ? combatant.combatantOffhands.map(simplifyEquipmentConfig).filter(Boolean)
         : [],
       battleData: extractBattleDataFields(combatant.battleData || null),
+      metrics: metrics || createRuntimeMetrics(),
     };
+  }
+
+  function extractCombatantRuntimeCached(rootEl, previousCache) {
+    const startedAt = nowMs();
+    const metrics = createRuntimeMetrics();
+    let invalidationReason = null;
+    let container = null;
+
+    if (!rootEl) {
+      metrics.durationMs = nowMs() - startedAt;
+      return { runtime: null, cache: null, metrics, invalidationReason: 'no_root' };
+    }
+
+    if (previousCache?.rootEl && previousCache.rootEl !== rootEl) {
+      invalidationReason = 'root_changed';
+    }
+
+    if (previousCache?.containerRef && previousCache.rootEl === rootEl && isCombatantContainer(previousCache.containerRef)) {
+      container = previousCache.containerRef;
+      metrics.cacheHit = true;
+      metrics.usedContainerRef = true;
+    }
+
+    if (!container) {
+      const seeds = getReactSeedsFromNode(rootEl);
+      metrics.usedDeepFind = true;
+      container = deepFind(seeds, isCombatantContainer, 9000, metrics);
+      if (!container && !invalidationReason) invalidationReason = 'container_not_found';
+    }
+
+    const runtime = extractCombatantRuntimeFromContainer(container, metrics);
+    if (!runtime || !runtime.baseCombatant) {
+      metrics.durationMs = nowMs() - startedAt;
+      return {
+        runtime: null,
+        cache: null,
+        metrics,
+        invalidationReason: invalidationReason || 'empty_combatant',
+      };
+    }
+
+    const combatantKey = buildCombatantKey(runtime);
+    const previousAgeMs = previousCache?.capturedAt ? Date.now() - previousCache.capturedAt : null;
+    if (!invalidationReason && previousCache) {
+      if (previousCache.combatantKey && previousCache.combatantKey !== combatantKey) invalidationReason = 'combatant_changed';
+      else if (previousAgeMs != null && previousAgeMs > RUNTIME_CACHE_TTL_MS) invalidationReason = 'cache_expired';
+    }
+
+    metrics.durationMs = nowMs() - startedAt;
+    const cache = {
+      rootEl,
+      containerRef: container,
+      capturedAt: Date.now(),
+      combatantKey,
+      result: runtime,
+    };
+    return {
+      runtime: {
+        ...runtime,
+        combatantKey,
+        metrics,
+      },
+      cache,
+      metrics,
+      invalidationReason,
+    };
+  }
+
+  function extractTurnOrderRuntime(rootEl) {
+    return extractTurnOrderRuntimeCached(rootEl, null).runtime;
+  }
+
+  function extractCombatantRuntime(rootEl) {
+    return extractCombatantRuntimeCached(rootEl, null).runtime;
   }
 
   window.__dfkReactRuntime = {
     extractBattleDataFields,
     extractCombatantRuntime,
+    extractCombatantRuntimeCached,
+    extractCombatantRuntimeFromContainer,
     extractTurnOrderRuntime,
+    extractTurnOrderRuntimeCached,
+    extractTurnOrderRuntimeFromContainer,
     getReactSeedsFromNode,
   };
 })();
